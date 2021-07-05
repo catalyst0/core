@@ -28,43 +28,66 @@
  */
 package org.burningwave.core.classes;
 
+import static org.burningwave.core.assembler.StaticComponentContainer.ByteBufferHandler;
 import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
 import static org.burningwave.core.assembler.StaticComponentContainer.Streams;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Optional;
+import java.util.function.Consumer;
 
-import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
+import org.burningwave.core.Closeable;
+import org.burningwave.core.function.ThrowingFunction;
 import org.burningwave.core.io.FileSystemItem;
 
-public class JavaClass {
-	private final ByteBuffer byteCode;
-	private final String className;
+public class JavaClass implements Closeable {
+	private ByteBuffer byteCode;
+	private String classNameSlashed;
+	private String className;
 	
-	JavaClass(ByteBuffer byteCode) throws IOException {
-		this.byteCode = Streams.shareContent(byteCode);
-		this.className = Classes.retrieveName(byteCode);
+	private JavaClass(String className, ByteBuffer byteCode) {
+		this.classNameSlashed = className;
+		this.byteCode = byteCode;
+	}
+	
+	JavaClass(Class<?> cls) {
+		this(cls.getName(), Classes.getByteCode(cls));
+	}
+	
+	JavaClass(ByteBuffer byteCode) {
+		this(Classes.retrieveName(byteCode), Streams.shareContent(byteCode));
+	}
+	
+	public static JavaClass create(Class<?> cls) {
+		return new JavaClass(cls); 
 	}
 	
 	public static JavaClass create(ByteBuffer byteCode) {
-		try {
-			return new JavaClass(byteCode);
-		} catch (IOException exc) {
-			throw Throwables.toRuntimeException(exc);
+		return new JavaClass(byteCode);
+	}
+	
+	public static void use(ByteBuffer byteCode, Consumer<JavaClass> javaClassConsumer) {
+		try(JavaClass javaClass = JavaClass.create(byteCode)) {
+			javaClassConsumer.accept(javaClass);
+		}
+	}
+	
+	public static <T, E extends Throwable> T extractByUsing(ByteBuffer byteCode, ThrowingFunction<JavaClass, T, E> javaClassConsumer) throws E {
+		try(JavaClass javaClass = JavaClass.create(byteCode)) {
+			return javaClassConsumer.apply(javaClass);
 		}
 	}
 	
 	private  String _getPackageName() {
-		return className.contains("/") ?
-			className.substring(0, className.lastIndexOf("/")) :
+		return classNameSlashed.contains("/") ?
+			classNameSlashed.substring(0, classNameSlashed.lastIndexOf("/")) :
 			null;
 	}
 
 	private String _getSimpleName() {
-		return className.contains("/") ?
-			className.substring(className.lastIndexOf("/") + 1) :
-			className;
+		return classNameSlashed.contains("/") ?
+			classNameSlashed.substring(classNameSlashed.lastIndexOf("/") + 1) :
+			classNameSlashed;
 	}	
 	
 	public String getPackageName() {
@@ -102,25 +125,28 @@ public class JavaClass {
 	}
 	
 	public String getName() {
-		String packageName = getPackageName();
-		String classSimpleName = getSimpleName();
-		String name = null;
-		if (packageName != null) {
-			name = packageName;
-		}
-		if (classSimpleName != null) {
-			if (packageName == null) {
-				name = "";
-			} else {
-				name += ".";
+		if (className == null) {
+			String packageName = getPackageName();
+			String classSimpleName = getSimpleName();
+			String name = null;
+			if (packageName != null) {
+				name = packageName;
 			}
-			name += classSimpleName;
-		}
-		return name;
+			if (classSimpleName != null) {
+				if (packageName == null) {
+					name = "";
+				} else {
+					name += ".";
+				}
+				name += classSimpleName;
+			}
+			className = name;
+		}		
+		return className;
 	}
 	
 	public ByteBuffer getByteCode() {
-		return byteCode.duplicate();
+		return ByteBufferHandler.duplicate(byteCode);
 	}
 	
 	public byte[] toByteArray() {
@@ -131,16 +157,26 @@ public class JavaClass {
 		return Streams.store(classPathFolder + "/" + getPath(), getByteCode());
 	}
 	
+	public JavaClass duplicate() {
+		return new JavaClass(classNameSlashed, byteCode);
+	}
+	
 	@Override
 	public String toString() {
 		return getName();
 	}
 	
-	public static class Criteria extends org.burningwave.core.Criteria<JavaClass, Criteria, org.burningwave.core.Criteria.TestContext<JavaClass, Criteria>>{
+	protected static class Criteria extends org.burningwave.core.Criteria<JavaClass, Criteria, org.burningwave.core.Criteria.TestContext<JavaClass, Criteria>>{
 		
 		public static Criteria create() {
 			return new Criteria();
 		}
 		
+	}
+
+	@Override
+	public void close() {
+		classNameSlashed = null;
+		byteCode = null;		
 	}
 }

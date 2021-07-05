@@ -27,10 +27,16 @@
  * OR OTHER DEALINGS IN THE SOFTWARE.
  */
 package org.burningwave.core.classes;
+
+import static org.burningwave.core.assembler.StaticComponentContainer.BackgroundExecutor;
 import static org.burningwave.core.assembler.StaticComponentContainer.Cache;
 import static org.burningwave.core.assembler.StaticComponentContainer.ClassLoaders;
 import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
+import static org.burningwave.core.assembler.StaticComponentContainer.IterableObjectHelper;
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
+import static org.burningwave.core.assembler.StaticComponentContainer.Objects;
 import static org.burningwave.core.assembler.StaticComponentContainer.Strings;
+import static org.burningwave.core.assembler.StaticComponentContainer.Synchronizer;
 import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
 
 import java.io.InputStream;
@@ -47,16 +53,18 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 import org.burningwave.core.Component;
+import org.burningwave.core.concurrent.QueuedTasksExecutor.Task;
 import org.burningwave.core.io.ByteBufferInputStream;
 
 
 @SuppressWarnings("unchecked")
 public class MemoryClassLoader extends ClassLoader implements Component {
-
 	Map<String, ByteBuffer> notLoadedByteCodes;
 	Map<String, ByteBuffer> loadedByteCodes;
-	HashSet<Object> clients;
-	boolean isClosed;
+	Collection<Object> clients;
+	protected boolean isClosed;
+	String instanceId;
+	
 	
 	static {
         ClassLoader.registerAsParallelCapable();
@@ -66,6 +74,7 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 		ClassLoader parentClassLoader
 	) {
 		super(parentClassLoader);
+		instanceId = Objects.getCurrentId(this);
 		if (parentClassLoader instanceof MemoryClassLoader) {
 			((MemoryClassLoader)parentClassLoader).register(this);
 		}
@@ -85,18 +94,16 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute addByteCode on class named {} because {} has been closed", className, this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute addByteCode on class named {} because {} has been closed", className, this.toString());
     		}
     	}
     }
 
 	void addByteCode0(String className, ByteBuffer byteCode) {
 		if (ClassLoaders.retrieveLoadedClass(this, className) == null) {
-			synchronized (notLoadedByteCodes) {
-				notLoadedByteCodes.put(className, byteCode);
-			}
+			notLoadedByteCodes.put(className, byteCode);
 		} else {
-			logWarn("Could not add compiled class {} cause it's already defined", className);
+			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not add bytecode for class {} cause it's already defined", className);
 		}
 	}
     
@@ -111,7 +118,7 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute getNotLoadedByteCode on class named {} because {} has been closed", className, this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute getNotLoadedByteCode on class named {} because {} has been closed", className, this.toString());
     		}
     	}
     	return null;
@@ -124,7 +131,7 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute getByteCodeOf on class named {} because {} has been closed", className, this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute getByteCodeOf on class named {} because {} has been closed", className, this.toString());
     		}
     	}
     	return null;
@@ -141,7 +148,7 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute addByteCodes on {} because {} has been closed", byteCodes.toString(), this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute addByteCodes on {} because {} has been closed", byteCodes.toString(), this.toString());
     		}
     	}
 		
@@ -158,7 +165,7 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute addByteCodes on {} because {} has been closed", classes.toString(), this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute addByteCodes on {} because {} has been closed", classes.toString(), this.toString());
     		}
     	}
 	} 
@@ -174,7 +181,7 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute addByteCodes on {} because {} has been closed", classes.toString(), this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute addByteCodes on {} because {} has been closed", classes.toString(), this.toString());
     		}
     	}    	
 	} 
@@ -190,16 +197,13 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 	) throws IllegalArgumentException {
     	Package pkg = null;
     	if (Strings.isNotEmpty(packageName)) {
-    		pkg = ClassLoaders.retrieveLoadedPackage(this, packageName);
-    		if (pkg == null) {
-    			try {
-    				pkg = super.definePackage(packageName, specTitle, specVersion, specVendor, implTitle,
-    		    			implVersion, implVendor, sealBase);
-    			} catch (IllegalArgumentException exc) {
-    				logWarn("Package " + packageName + " already defined");
-    				pkg = ClassLoaders.retrieveLoadedPackage(this, packageName);
-    			}
-    		}
+    		try {
+				pkg = super.definePackage(packageName, specTitle, specVersion, specVendor, implTitle,
+		    			implVersion, implVendor, sealBase);
+			} catch (IllegalArgumentException exc) {
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Package " + packageName + " already defined");
+				pkg = ClassLoaders.retrieveLoadedPackage(this, packageName);
+			}
     	}
     	return pkg;
     }
@@ -210,7 +214,11 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 		    	0, cls.getName().lastIndexOf(".")
 		    );
 		    if (ClassLoaders.retrieveLoadedPackage(this, pckgName) == null) {
-		    	definePackage(pckgName, null, null, null, null, null, null, null);
+		    	Synchronizer.execute(instanceId + "_" + pckgName, () -> {
+		    		if (ClassLoaders.retrieveLoadedPackage(this, pckgName) == null) {
+		    			definePackage(pckgName, null, null, null, null, null, null, null);
+		    		}
+		    	});
 			}	
 		}
 	}
@@ -220,10 +228,14 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     	Class<?> cls = null;
     	try {
 			cls = super.loadClass(className, resolve);
-		} catch (SecurityException exc) {
-			cls = Class.forName(className);
+		} catch (Throwable exc) {
+			if (className.startsWith("java.")) {
+				cls = Class.forName(className);
+			} else {
+				Throwables.throwException(exc);
+			}			
 		}
-    	removeNotLoadedCompiledClass(className);
+    	removeNotLoadedBytecode(className);
     	return cls;
     }
     
@@ -278,7 +290,7 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute getByteCode on {} because {} has been closed", classRelativePath, this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute getByteCode on {} because {} has been closed", classRelativePath, this.toString());
     		}
     	}    
 		return null;
@@ -287,14 +299,12 @@ public class MemoryClassLoader extends ClassLoader implements Component {
     
     protected void addLoadedByteCode(String className, ByteBuffer byteCode) {
     	try {
-    		synchronized (loadedByteCodes) {
-        		loadedByteCodes.put(className, byteCode);
-    		}
+    		loadedByteCodes.put(className, byteCode);
     	} catch (Throwable exc) {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute addLoadedByteCode on {} because {} has been closed", className, this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute addLoadedByteCode on {} because {} has been closed", className, this.toString());
     		}
     	}    
     }
@@ -311,18 +321,18 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 	        		definePackageOf(cls);
 	        	} catch (NoClassDefFoundError exc) {
 	        		String notFoundClassName = Classes.retrieveName(exc);
-	        		removeNotLoadedCompiledClass(className);
-					logWarn("Could not load compiled class " + className + " because class " + notFoundClassName + 
+	        		removeNotLoadedBytecode(className);
+	        		ManagedLoggersRepository.logWarn(getClass()::getName, "Could not load class " + className + " because class " + notFoundClassName + 
 						" could not be found, so it will be removed: " + exc.toString()
 					);
 	    			throw exc;
 	        	}
 			} else {
-				logWarn("Compiled class " + className + " not found");
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Bytecode of class {} not found", className);
 			}
 		} catch (Throwable exc) {
 			if (isClosed) {
-				logWarn("Could not load class {} because {} has been closed", className, this.toString());
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Could not load class {} because {} has been closed", className, this.toString());
 			} else {
 				throw exc;
 			}
@@ -335,22 +345,22 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 	}
 	
 	Class<?> _defineClass(String className, java.nio.ByteBuffer byteCode, ProtectionDomain protectionDomain) {
-		Class<?> cls = super.defineClass(className, byteCode, protectionDomain);
-		addLoadedByteCode(className, byteCode);
-		removeNotLoadedCompiledClass(className);
-		return cls;
+		synchronized(getClassLoadingLock(className)) {
+			Class<?> cls = super.defineClass(className, byteCode, protectionDomain);
+			addLoadedByteCode(className, byteCode);
+			removeNotLoadedBytecode(className);
+			return cls;
+		}
 	}
 
-	public void removeNotLoadedCompiledClass(String className) {
+	public void removeNotLoadedBytecode(String className) {
 		try {
-			synchronized (notLoadedByteCodes) {
-				notLoadedByteCodes.remove(className);
-			}
+			notLoadedByteCodes.remove(className);
     	} catch (Throwable exc) {
     		if (!isClosed) {
     			throw exc;
     		} else {
-    			logWarn("Could not execute removeNotLoadedCompiledClass on class named {} because {} has been closed", className, this.toString());
+    			ManagedLoggersRepository.logWarn(getClass()::getName, "Could not execute removeNotLoadedBytecode on class named {} because {} has been closed", className, this.toString());
     		}
     	}    
 	}
@@ -360,17 +370,17 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 		return ClassLoaders.retrieveLoadedClassesForPackage(this, packagePredicate);
 	}
 	
-	Map<String, ByteBuffer> getLoadedCompiledClasses() {
+	Map<String, ByteBuffer> getLoadedBytecodes() {
 		return loadedByteCodes;
 	}
 		
-	public Collection<Class<?>> forceCompiledClassesLoading() {
+	public Collection<Class<?>> forceBytecodesLoading() {
 		Collection<Class<?>> loadedClasses = new HashSet<>();
 		for (Map.Entry<String, ByteBuffer> entry : new HashMap<>(notLoadedByteCodes).entrySet()){
 			try {
 				loadedClasses.add(loadClass(entry.getKey()));
 			} catch (Throwable exc) {
-				logWarn("Could not load class " + entry.getKey(), exc.getMessage());
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Could not load class " + entry.getKey(), exc.getMessage());
 			}
 		}
 		return loadedClasses;
@@ -378,33 +388,31 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 	
 	@Override
 	public MemoryClassLoader clear () {
-		try {
-			this.notLoadedByteCodes.clear();
-			this.loadedByteCodes.clear();
-    	} catch (Throwable exc) {
-    		if (!isClosed) {
-    			throw exc;
-    		} else {
-    			logWarn("Could not execute clear because {} has been closed", this.toString());
-    		}
-    	}  
+		Map<String, ByteBuffer> notLoadedByteCodes = this.notLoadedByteCodes;
+		Map<String, ByteBuffer> loadedByteCodes = this.loadedByteCodes;
+		this.notLoadedByteCodes = new HashMap<>();
+		this.loadedByteCodes = new HashMap<>();
+		BackgroundExecutor.createTask(() -> {
+			IterableObjectHelper.deepClear(notLoadedByteCodes);
+			IterableObjectHelper.deepClear(loadedByteCodes);
+		}, Thread.MIN_PRIORITY).submit();
 		return this;
 	}
 	
 	protected void unregister() {
 		ClassLoaders.unregister(this);
-		Cache.classLoaderForConstructors.remove(this);
-		Cache.classLoaderForFields.remove(this);
-		Cache.classLoaderForMethods.remove(this);
-		Cache.uniqueKeyForFields.remove(this);
-		Cache.uniqueKeyForConstructors.remove(this);
-		Cache.uniqueKeyForMethods.remove(this);
-		Cache.bindedFunctionalInterfaces.remove(this);
-		Cache.uniqueKeyForExecutableAndMethodHandle.remove(this);
+		Cache.classLoaderForConstructors.remove(this, true);
+		Cache.classLoaderForFields.remove(this, true);
+		Cache.classLoaderForMethods.remove(this, true);
+		Cache.uniqueKeyForFields.remove(this, true);
+		Cache.uniqueKeyForConstructors.remove(this, true);
+		Cache.uniqueKeyForMethods.remove(this, true);
+		Cache.bindedFunctionalInterfaces.remove(this, true);
+		Cache.uniqueKeyForExecutableAndMethodHandle.remove(this, true);
 	}
 	
 	public synchronized boolean register(Object client) {
-		HashSet<Object> clients = this.clients;
+		Collection<Object> clients = this.clients;
 		if (!isClosed) {
 			clients.add(client);
 			return true;
@@ -413,7 +421,7 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 	}
 	
 	public synchronized boolean unregister(Object client, boolean close) {
-		HashSet<Object> clients = this.clients;
+		Collection<Object> clients = this.clients;
 		if (!isClosed) {
 			clients.remove(client);
 			if (clients.isEmpty() && close) {
@@ -424,27 +432,30 @@ public class MemoryClassLoader extends ClassLoader implements Component {
 		return false;
 	}
 	
-	public synchronized void close() {
-		HashSet<Object> clients = this.clients;
-		if (clients != null && !clients.isEmpty()) {
-			throw Throwables.toRuntimeException("Could not close " + this + " because there are " + clients.size() +" registered clients");
-		}
-		isClosed = true;
-		ClassLoader parentClassLoader = getParent();
-		if (parentClassLoader != null && parentClassLoader instanceof MemoryClassLoader) {
-			((MemoryClassLoader)parentClassLoader).unregister(this,true);
-		}
-		if (clients != null) {
-			clients.clear();
-		}
-		this.clients = null;
-		clear();
-		notLoadedByteCodes = null;
-		loadedByteCodes = null;
-		Collection<Class<?>> loadedClasses = ClassLoaders.retrieveLoadedClasses(this);
-		if (loadedClasses != null) {
+	@Override
+	public void close() {
+		closeResources();
+	}
+	
+	Task closeResources() {
+		return closeResources(MemoryClassLoader.class.getName() + "@" + System.identityHashCode(this), () -> isClosed, () -> {
+			Collection<Object> clients = this.clients;
+			if (clients != null && !clients.isEmpty()) {
+				Throwables.throwException("Could not close {} because there are {} registered clients", this, clients.size());
+			}
+			isClosed = true;
+			ClassLoader parentClassLoader = getParent();
+			if (parentClassLoader != null && parentClassLoader instanceof MemoryClassLoader) {
+				((MemoryClassLoader)parentClassLoader).unregister(this,true);
+			}
+			clear();
+			notLoadedByteCodes = null;
+			loadedByteCodes = null;
+			Collection<Class<?>> loadedClasses = ClassLoaders.retrieveLoadedClasses(this);
 			loadedClasses.clear();
-		}
-		unregister();
+			unregister();
+			this.clients.clear();
+			this.clients = null;
+		});
 	}
 }

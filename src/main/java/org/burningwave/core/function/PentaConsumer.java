@@ -26,22 +26,21 @@
  * AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
  * OR OTHER DEALINGS IN THE SOFTWARE.
  */
-package org.burningwave.core.io;
+package org.burningwave.core.function;
 
-public enum BufferSize {
-	BYTE(1),
-	BYTE_256(256),
-	BYTE_512(512),
-	BYTE_768(768),
-    KILO_BYTE(1024),
-    MEGA_BYTE(KILO_BYTE.value * KILO_BYTE.value);
-    
-	private long value;
+import java.util.Objects;
 
-    private BufferSize(long value) {
-    	this.value = value;
-    }        
-    public long getValue() {
-    	return value;
+@FunctionalInterface
+public interface PentaConsumer<P0, P1, P2, P3, P4> { 
+
+	public abstract void accept(P0 p0, P1 p1, P2 p2, P3 p3, P4 p4);
+	
+    default PentaConsumer<P0, P1, P2, P3, P4> andThen(PentaConsumer<? super P0, ? super P1, ? super P2, ? super P3, ? super P4> after) {
+        Objects.requireNonNull(after);
+        return (p0, p1, p2, p3, p4) -> {
+            accept(p0, p1, p2, p3, p4);
+            after.accept(p0, p1, p2, p3, p4);
+        };
     }
+
 }

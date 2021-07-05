@@ -26,22 +26,40 @@
  * AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
  * OR OTHER DEALINGS IN THE SOFTWARE.
  */
-package org.burningwave;
+package java.lang.reflect;
 
-public class RuntimeException extends java.lang.RuntimeException {
+import java.lang.reflect.AccessibleObject;
+import java.lang.reflect.Method;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.util.function.BiConsumer;
+
+@SuppressWarnings("unchecked")
+public class AccessibleSetterInvokerForJDK9 implements BiConsumer<AccessibleObject, Boolean> {
+	private static MethodHandle accessibleSetterMethodHandle;
+	private static MethodHandles.Lookup methodHandleRetriever;
 	
-	private static final long serialVersionUID = 7526382733941265525L;
-	
-	public RuntimeException(String message) {
-		super(message);
+	static {
+		try {
+			Method accessibleSetterMethod = AccessibleObject.class.getDeclaredMethod("setAccessible0", boolean.class);
+			accessibleSetterMethodHandle = methodHandleRetriever.unreflect(accessibleSetterMethod);
+		} catch (Throwable exc) {
+			throwException(exc);
+		}
+		
 	}
 
-	public RuntimeException(Throwable exc) {
-		super(exc);
+	private static <E extends Throwable> void throwException(Throwable exc) throws E{
+		throw (E)exc;
 	}
-	
-	public RuntimeException(String message, Throwable cause) {
-        super(message, cause);
-    }
+
+	@Override
+	public void accept(AccessibleObject accessibleObject, Boolean flag) {
+		try {
+			accessibleSetterMethodHandle.invoke(accessibleObject, flag);
+		} catch (Throwable exc) {
+			throwException(exc);
+		}		
+	}
 
 }

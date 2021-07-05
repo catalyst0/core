@@ -35,15 +35,17 @@ import java.util.Enumeration;
 import java.lang.invoke.MethodHandle;
 
 
-public class ClassLoaderDelegate extends BuiltinClassLoader {
+public class ClassLoaderDelegateForJDK9 extends BuiltinClassLoader {
+	
 	private ClassLoader classLoader;
 	private MethodHandle loadClassMethod;
 	
-	ClassLoaderDelegate(String name, BuiltinClassLoader parent, URLClassPath ucp) {
-		super(name, parent, ucp);
-	}
+	static {
+        ClassLoader.registerAsParallelCapable();
+    }
 	
-	public void init(ClassLoader classLoader, MethodHandle loadClassMethodHandle) {
+	ClassLoaderDelegateForJDK9(BuiltinClassLoader parent, ClassLoader classLoader, MethodHandle loadClassMethodHandle) {
+		super("ClassLoaderDelegateOf" + classLoader.toString(), parent, null);
 		this.classLoader = classLoader;
 		this.loadClassMethod = loadClassMethodHandle;
 	}
@@ -53,7 +55,7 @@ public class ClassLoaderDelegate extends BuiltinClassLoader {
 		try {
 			return (Class<?>)loadClassMethod.invoke(classLoader, className, resolve);
 		} catch (Throwable exc) {
-			System.out.println("Class " + className + " not found");
+			exc.printStackTrace();
 			return null;
 		}
 	}
@@ -62,9 +64,10 @@ public class ClassLoaderDelegate extends BuiltinClassLoader {
 	protected Class<?> loadClass(String className, boolean resolve) throws ClassNotFoundException {
 		try {
 			return (Class<?>)loadClassMethod.invoke(classLoader, className, resolve);
+		} catch (ClassNotFoundException exc) {
+			throw exc;
 		} catch (Throwable exc) {
-			System.out.println("Class " + className + " not found");
-			return null;
+			throw new ClassNotFoundException(className, exc);
 		}
 	}
 	

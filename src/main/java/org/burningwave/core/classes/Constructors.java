@@ -35,21 +35,19 @@ import static org.burningwave.core.assembler.StaticComponentContainer.Throwables
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Constructor;
-import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.Map;
 import java.util.stream.Collectors;
 
-import org.burningwave.core.function.ThrowingSupplier;
+import org.burningwave.core.function.Executor;
 
 
 @SuppressWarnings("unchecked")
-public class Constructors extends ExecutableMemberHelper<Constructor<?>>  {
+public class Constructors extends Members.Handler.OfExecutable<Constructor<?>, ConstructorCriteria>  {
 	
 	public static Constructors create() {
 		return new Constructors();
@@ -59,10 +57,21 @@ public class Constructors extends ExecutableMemberHelper<Constructor<?>>  {
 		Class<?> targetClass,
 		Object... arguments
 	) {	
-		Constructor<?> ctor = findFirstAndMakeItAccessible(targetClass, Classes.deepRetrieveFrom(arguments));
-		return ThrowingSupplier.get(() -> {
+		Constructor<?> ctor = findFirstAndMakeItAccessible(targetClass, Classes.retrieveFrom(arguments));
+		if (ctor == null) {
+			Throwables.throwException("Constructor not found in {}", targetClass.getName());
+		}
+		return Executor.get(() -> {
 			//logInfo("Invoking " + ctor);
-			return (T)ctor.newInstance(getArgumentList(ctor, arguments));
+			return (T)LowLevelObjectsHandler.newInstance(
+				ctor,
+				getArgumentArray(
+					ctor,
+					this::getArgumentListWithArrayForVarArgs,
+					ArrayList::new, 
+					arguments
+				)
+			);
 		});
 	}
 	
@@ -70,42 +79,34 @@ public class Constructors extends ExecutableMemberHelper<Constructor<?>>  {
 		Class<?> targetClass,
 		Object... arguments
 	) {
-		Class<?>[] argsType = Classes.deepRetrieveFrom(arguments);
-		String cacheKey = getCacheKey(targetClass, "equals " + Classes.retrieveSimpleName(targetClass.getName()), argsType);
-		ClassLoader targetClassClassLoader = Classes.getClassLoader(targetClass);
-		Map.Entry<java.lang.reflect.Executable, MethodHandle> methodHandleBag = Cache.uniqueKeyForExecutableAndMethodHandle.getOrUploadIfAbsent(
-			targetClassClassLoader, cacheKey, 
-			() -> {
-				Constructor<?> constructor = findFirstAndMakeItAccessible(targetClass, argsType);
-				return new AbstractMap.SimpleEntry<>(
-					constructor,
-					convertToMethodHandle(
-						constructor
-					)
-				);
-			}
-		);
-		return ThrowingSupplier.get(() -> {
-				Constructor<?> ctor = (Constructor<?>) methodHandleBag.getKey();
+		Class<?>[] argsType = Classes.retrieveFrom(arguments);
+		Members.Handler.OfExecutable.Box<Constructor<?>> methodHandleBox = findDirectHandleBox(targetClass, argsType);
+		return Executor.get(() -> {
+				Constructor<?> ctor = methodHandleBox.getExecutable();
 				//logInfo("Direct invoking of " + ctor);
-				return (T)methodHandleBag.getValue().invokeWithArguments(
-					getArgumentList(ctor, arguments)
+				return (T)methodHandleBox.getHandler().invokeWithArguments(
+					getFlatArgumentList(ctor, ArrayList::new, arguments)
 				);
 			}
 		);
 	}
 
-	public Constructor<?> findOneAndMakeItAccessible(Class<?> targetClass, Class<?>... arguments) {
-		Collection<Constructor<?>> members = findAllAndMakeThemAccessible(targetClass, arguments);
+	public Constructor<?> findOneAndMakeItAccessible(Class<?> targetClass, Class<?>... argumentTypes) {
+		Collection<Constructor<?>> members = findAllAndMakeThemAccessible(targetClass, argumentTypes);
 		if (members.size() == 1) {
 			return members.stream().findFirst().get();
 		} else if (members.size() > 1) {
-			Collection<Constructor<?>> membersThatMatch = searchForExactMatch(members, arguments);
+			Collection<Constructor<?>> membersThatMatch = searchForExactMatch(members, argumentTypes);
 			if (membersThatMatch.size() == 1) {
 				return membersThatMatch.stream().findFirst().get();
 			}
+			Throwables.throwException(
+				"Found more than one of constructor with argument types {} in {} class",
+				String.join(", ", Arrays.asList(argumentTypes).stream().map(cls -> cls.getName()).collect(Collectors.toList())),
+				targetClass.getName()
+			);
 		}
-		throw Throwables.toRuntimeException("Constructor not found or found more than one constructor in " + targetClass.getName());
+		return null; 
 	}
 	
 	public Constructor<?> findFirstAndMakeItAccessible(Class<?> targetClass, Class<?>... arguments) {
@@ -119,7 +120,7 @@ public class Constructors extends ExecutableMemberHelper<Constructor<?>>  {
 			}
 			return members.stream().findFirst().get();
 		}
-		throw Throwables.toRuntimeException("Constructor not found in " + targetClass.getName());
+		return null;
 	}
 	
 	public Collection<Constructor<?>> findAllAndMakeThemAccessible(
@@ -129,15 +130,16 @@ public class Constructors extends ExecutableMemberHelper<Constructor<?>>  {
 		String cacheKey = getCacheKey(targetClass, "all constructors with input parameters", arguments);
 		ClassLoader targetClassClassLoader = Classes.getClassLoader(targetClass);
 		return Cache.uniqueKeyForConstructors.getOrUploadIfAbsent(targetClassClassLoader, cacheKey, () -> {
-			ConstructorCriteria criteria = ConstructorCriteria.create().parameterTypesAreAssignableFrom(arguments);
+			ConstructorCriteria criteria = ConstructorCriteria.withoutConsideringParentClasses().parameterTypesAreAssignableFrom(arguments);
 			if (arguments != null && arguments.length == 0) {
 				criteria.or().parameter((parameters, idx) -> parameters.length == 1 && parameters[0].isVarArgs());
 			}
 			return Collections.unmodifiableCollection(
-				findAllAndMakeThemAccessible(targetClass).stream().filter(
-					criteria.getPredicateOrTruePredicateIfPredicateIsNull()
-				).collect(
-					Collectors.toCollection(LinkedHashSet::new)
+				findAllAndApply(
+					criteria, 
+					targetClass,
+					(member) -> 
+						setAccessible(member, true)
 				)
 			);
 		});
@@ -152,10 +154,8 @@ public class Constructors extends ExecutableMemberHelper<Constructor<?>>  {
 			targetClassClassLoader, cacheKey, () -> {
 				return Collections.unmodifiableCollection(
 					findAllAndApply(
-						ConstructorCriteria.byScanUpTo((lastClassInHierarchy, currentScannedClass) -> {
-		                    return lastClassInHierarchy.equals(currentScannedClass);
-		                }), targetClass, (member) -> 
-							member.setAccessible(true)
+						ConstructorCriteria.withoutConsideringParentClasses(), targetClass, (member) -> 
+							setAccessible(member, true)
 					)
 				);
 			}
@@ -163,24 +163,39 @@ public class Constructors extends ExecutableMemberHelper<Constructor<?>>  {
 		return members;
 	}
 	
-	public MethodHandle convertToMethodHandle(Constructor<?> constructor) {
-		return convertToMethodHandleBag(constructor).getValue();
+	public MethodHandle findDirectHandle(Class<?> targetClass, Class<?>... arguments) {
+		return findDirectHandleBox(targetClass, arguments).getHandler();
 	}
 	
-	public Map.Entry<Lookup, MethodHandle> convertToMethodHandleBag(Constructor<?> constructor) {
-		try {
-			Class<?> constructorDeclaringClass = constructor.getDeclaringClass();
-			MethodHandles.Lookup consulter = LowLevelObjectsHandler.getConsulter(constructorDeclaringClass);
-			return new AbstractMap.SimpleEntry<>(consulter,
-				consulter.findConstructor(
-					constructorDeclaringClass,
-					MethodType.methodType(void.class, constructor.getParameterTypes())
-				)
-					
+	private Members.Handler.OfExecutable.Box<Constructor<?>> findDirectHandleBox(Class<?> targetClass, Class<?>... argsType) {
+		String nameForCaching = retrieveNameForCaching(targetClass);
+		String cacheKey = getCacheKey(targetClass, "equals " + nameForCaching, argsType);
+		ClassLoader targetClassClassLoader = Classes.getClassLoader(targetClass);
+		Members.Handler.OfExecutable.Box<Constructor<?>> entry =
+			(Box<Constructor<?>>)Cache.uniqueKeyForExecutableAndMethodHandle.get(targetClassClassLoader, cacheKey);
+		if (entry == null) {
+			Constructor<?> ctor = findFirstAndMakeItAccessible(targetClass, argsType);
+			entry = findDirectHandleBox(
+				ctor, targetClassClassLoader, cacheKey
 			);
-		} catch (NoSuchMethodException | IllegalAccessException exc) {
-			throw Throwables.toRuntimeException(exc);
 		}
+		return entry;
+	}	
+	
+	@Override
+	MethodHandle retrieveMethodHandle(MethodHandles.Lookup consulter, Constructor<?> constructor) throws NoSuchMethodException, IllegalAccessException {
+		return consulter.findConstructor(
+			constructor.getDeclaringClass(),
+			MethodType.methodType(void.class, constructor.getParameterTypes())
+		);
 	}
-
+	
+	@Override
+	String retrieveNameForCaching(Constructor<?> constructor) {
+		return retrieveNameForCaching(constructor.getDeclaringClass());
+	}
+	
+	String retrieveNameForCaching(Class<?> cls) {
+		return Classes.retrieveSimpleName(cls.getName());
+	}
 }

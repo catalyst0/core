@@ -42,7 +42,7 @@ public interface MembersRetriever {
 	public default Field getDeclaredField(Class<?> cls, Predicate<Field> predicate) {
 		Collection<Field> members = getDeclaredFields(cls, predicate);
 		if (members.size() > 1) {
-			throw Throwables.toRuntimeException("More than one member found for class " + cls.getName());
+			Throwables.throwException("More than one member found for class {}", cls.getName());
 		}
 		return members.stream().findFirst().orElse(null);
 	}
@@ -50,15 +50,15 @@ public interface MembersRetriever {
 	public default Method getDeclaredMethod(Class<?> cls, Predicate<Method> predicate) {
 		Collection<Method> members = getDeclaredMethods(cls, predicate);
 		if (members.size() > 1) {
-			throw Throwables.toRuntimeException("More than one member found for class " + cls.getName());
+			Throwables.throwException("More than one member found for class {}", cls.getName());
 		}
 		return members.stream().findFirst().orElse(null);
 	}
 	
-	public default Constructor<?> getDeclaredConstructor(Class<?> cls, Predicate<Constructor<?>> predicate) {
-		Collection<Constructor<?>> members = getDeclaredConstructors(cls, predicate);
+	public default <T> Constructor<T> getDeclaredConstructor(Class<T> cls, Predicate<Constructor<T>> predicate) {
+		Collection<Constructor<T>> members = getDeclaredConstructors(cls, predicate);
 		if (members.size() > 1) {
-			throw Throwables.toRuntimeException("More than one member found for class " + cls.getName());
+			Throwables.throwException("More than one member found for class {}", cls.getName());
 		}
 		return members.stream().findFirst().orElse(null);
 	}
@@ -75,9 +75,9 @@ public interface MembersRetriever {
 	
 	
 
-	public default Collection<Constructor<?>> getDeclaredConstructors(Class<?> cls, Predicate<Constructor<?>> predicate) {
-		Collection<Constructor<?>> members = new HashSet<>();
-		for (Constructor<?> member : getDeclaredConstructors(cls)) {
+	public default <T> Collection<Constructor<T>> getDeclaredConstructors(Class<T> cls, Predicate<Constructor<T>> predicate) {
+		Collection<Constructor<T>> members = new HashSet<>();
+		for (Constructor<T> member : getDeclaredConstructors(cls)) {
 			if (predicate.test(member)) {
 				members.add(member);
 			}
@@ -99,7 +99,7 @@ public interface MembersRetriever {
 	
 	public Field[] getDeclaredFields(Class<?> cls);
 	
-	public Constructor<?>[] getDeclaredConstructors(Class<?> cls);
+	public <T> Constructor<T>[] getDeclaredConstructors(Class<T> cls);
 	
 	public Method[] getDeclaredMethods(Class<?> cls);
 	

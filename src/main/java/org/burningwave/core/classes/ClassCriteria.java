@@ -46,12 +46,12 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import org.burningwave.core.Component;
 import org.burningwave.core.Criteria;
+import org.burningwave.core.ManagedLogger;
 import org.burningwave.core.function.PentaPredicate;
 
 @SuppressWarnings("unchecked")
-public class ClassCriteria extends CriteriaWithClassElementsSupplyingSupport<Class<?>, ClassCriteria, ClassCriteria.TestContext> implements Component {
+public class ClassCriteria extends CriteriaWithClassElementsSupplyingSupport<Class<?>, ClassCriteria, ClassCriteria.TestContext> implements ManagedLogger {
 	Map<String, MemberCriteria<?, ?, ?>> memberCriterias;
 	PentaPredicate<ClassCriteria, TestContext, MemberCriteria<?, ?, ?>, String, Class<?>> membersPredicate;
 	private boolean collectMembers;
@@ -59,6 +59,52 @@ public class ClassCriteria extends CriteriaWithClassElementsSupplyingSupport<Cla
 	private ClassCriteria() {
 		super();
 		memberCriterias = new HashMap<>();
+	}
+	
+	public ClassCriteria allThoseThatHaveAMatchInHierarchy(BiPredicate<TestContext, Class<?>> predicate) {
+		return super.allThoseThatMatch((testContext, cls) -> {
+            while (cls != null) {
+                if (predicate.test(testContext, cls)) {
+                    return true;
+                }
+                cls = cls.getSuperclass();
+            }
+            return false;
+        });
+	}
+	
+	public ClassCriteria allThoseThatHaveAMatchInHierarchy(Predicate<Class<?>> predicate) {
+		return super.allThoseThatMatch((cls) -> {
+            while (cls != null) {
+                if (predicate.test(cls)) {
+                    return true;
+                }
+                cls = cls.getSuperclass();
+            }
+            return false;
+        });
+	}
+	
+	public ClassCriteria byClassesThatHaveAMatchInHierarchy(BiPredicate<Map<Class<?>, Class<?>>, Class<?>> predicate) {
+		return byClassesThatMatch((uploadedClasses, cls) -> {
+            while (cls != null) {
+                if (predicate.test(uploadedClasses, cls)) {
+                    return true;
+                }
+                cls = cls.getSuperclass();
+            }
+            return false;
+        });
+	}
+	
+	public ClassCriteria byClassesThatMatch(BiPredicate<Map<Class<?>, Class<?>>, Class<?>> predicate) {
+		this.predicate = concat(
+			this.predicate,
+			(context, cls) -> {
+				return predicate.test(context.getCriteria().getUploadedClasses(), cls);
+			}
+		);
+		return this;
 	}
 	
 	public static ClassCriteria create() {
@@ -70,7 +116,7 @@ public class ClassCriteria extends CriteriaWithClassElementsSupplyingSupport<Cla
 			try {
 				return ClassLoaders.loadOrDefine(cls, classSupplier);
 			} catch (ClassNotFoundException exc) {
-				throw Throwables.toRuntimeException(exc);
+				return Throwables.throwException(exc);
 			}
 		};
 		this.byteCodeSupplier = Classes::getByteCode;
@@ -114,7 +160,7 @@ public class ClassCriteria extends CriteriaWithClassElementsSupplyingSupport<Cla
 			)
 		);
 		targetCriteria.collectMembers = leftCriteria.collectMembers || rightCriteria.collectMembers;
-		return super.logicOperation((ClassCriteria)leftCriteria, rightCriteria, binaryOperator, targetCriteria);
+		return super.logicOperation(leftCriteria, rightCriteria, binaryOperator, targetCriteria);
 	}	
 	
 	public ClassCriteria packageName(final Predicate<String> predicate) {
@@ -165,16 +211,6 @@ public class ClassCriteria extends CriteriaWithClassElementsSupplyingSupport<Cla
 		return this;
 	}
 	
-	public ClassCriteria byClasses(BiPredicate<Map<Class<?>, Class<?>>, Class<?>> predicate) {
-		this.predicate = concat(
-			this.predicate,
-			(context, cls) -> {
-				return predicate.test(context.getCriteria().getUploadedClasses(), cls);
-			}
-		);
-		return this;
-	}
-	
 	public <M extends Member> ClassCriteria byMembers(MemberCriteria<?, ?, ?> memberCriteria) {
 		final String key = UUID.randomUUID().toString();
 		this.memberCriterias.put(key, memberCriteria);		
@@ -215,6 +251,7 @@ public class ClassCriteria extends CriteriaWithClassElementsSupplyingSupport<Cla
 		return !members.isEmpty();
 	}
 	
+	@Override
 	public ClassCriteria createCopy() {
 		ClassCriteria copy = super.createCopy();
 		this.memberCriterias.entrySet().stream().collect(

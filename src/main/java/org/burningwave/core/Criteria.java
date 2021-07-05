@@ -37,22 +37,22 @@ import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import org.burningwave.core.function.ThrowingSupplier;
+import org.burningwave.core.function.Executor;
 import org.burningwave.core.function.TriPredicate;
 
 @SuppressWarnings("unchecked")
-public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestContext<E, C>> implements AutoCloseable, ManagedLogger {
+public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestContext<E, C>> implements Closeable {
 	protected BiPredicate<T, E> predicate;
 	protected Function<BiPredicate<T, E>, BiPredicate<T, E>> logicalOperator;
 	
 	@SuppressWarnings("resource")
 	public final static <E, C extends Criteria<E, C, T>, T extends Criteria.TestContext<E, C>> Criteria<E, C, T> of(final BiPredicate<T, E> predicate) {
-		return new Criteria<E, C, T>().allThat(predicate);
+		return new Criteria<E, C, T>().allThoseThatMatch(predicate);
 	}
 	
 	@SuppressWarnings("resource")
 	public final static <E, C extends Criteria<E, C, T>, T extends Criteria.TestContext<E, C>> Criteria<E, C, T> of(final Predicate<E> predicate) {
-		return new Criteria<E, C, T>().allThat(predicate);
+		return new Criteria<E, C, T>().allThoseThatMatch(predicate);
 	}
 	
 	public C and(){
@@ -66,11 +66,11 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 	}
 	
 	public C and(C criteria) {
-		return logicOperation((C)this.createCopy(), criteria.createCopy(), (predicate) -> predicate::and, newInstance());
+		return logicOperation(this.createCopy(), criteria.createCopy(), (predicate) -> predicate::and, newInstance());
 	}
 	
 	public C or(C criteria) {
-		return logicOperation((C)this.createCopy(), criteria.createCopy(), (predicate) -> predicate::or, newInstance());
+		return logicOperation(this.createCopy(), criteria.createCopy(), (predicate) -> predicate::or, newInstance());
 	}
 	
 	protected C logicOperation(C leftCriteria, C rightCriteria, 
@@ -86,12 +86,12 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 		return targetCriteria;
 	}
 	
-	public C allThat(final Predicate<E> predicate) {
-		return (C)allThat((context, entity) -> predicate.test(entity)) ;
+	public C allThoseThatMatch(final Predicate<E> predicate) {
+		return allThoseThatMatch((context, entity) -> predicate.test(entity)) ;
 	}
 	
 	
-	public C allThat(final BiPredicate<T, E> predicate) {
+	public C allThoseThatMatch(final BiPredicate<T, E> predicate) {
 		this.predicate = concat(
 			this.predicate,
 			(context, entity) -> predicate.test(context, entity)
@@ -101,7 +101,7 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 	
 	
 	protected C newInstance() {
-		return ThrowingSupplier.get(() -> {
+		return Executor.get(() -> {
 			return (C)Constructors.newInstanceDirectOf(this.getClass());
 		});
 	}
@@ -162,11 +162,11 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 	) {
 		return Optional.ofNullable(logicalOperator).map(logOp -> {
 			return logicalOperator.apply(input);
-		}).orElseThrow(() -> 
-			Throwables.toRuntimeException(
-				"A call to and/or method is necessary before calling " +
-				Thread.currentThread().getStackTrace()[9].getMethodName() + " at " +
-				Thread.currentThread().getStackTrace()[10]
+		}).orElseGet(() -> 
+			Throwables.throwException(
+				"A call to and/or method is necessary before calling {} at {}",
+				Thread.currentThread().getStackTrace()[10].getMethodName(),
+				Thread.currentThread().getStackTrace()[11]
 			)
 		);
 	}
@@ -178,25 +178,25 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 	public T testWithFalseResultForNullEntityOrTrueResultForNullPredicate(E entity) {
 		T context = createTestContext();
 		testWithFalseResultForNullEntityOrTrueResultForNullPredicate(context, entity);
-		return (T)context;
+		return context;
 	}
 	
 	public T testWithTrueResultForNullEntityOrTrueResultForNullPredicate(E entity) {
 		T context = createTestContext();
 		testWithTrueResultForNullEntityOrTrueResultForNullPredicate(context, entity);
-		return (T)context;
+		return context;
 	}
 	
 	public T testWithFalseResultForNullEntityOrFalseResultForNullPredicate(E entity) {
 		T context = createTestContext();
 		testWithFalseResultForNullEntityOrFalseResultForNullPredicate(context, entity);
-		return (T)context;
+		return context;
 	}
 	
 	public T testWithTrueResultForNullEntityOrFalseResultForNullPredicate(E entity) {
 		T context = createTestContext();
 		testWithTrueResultForNullEntityOrFalseResultForNullPredicate(context, entity);
-		return (T)context;
+		return context;
 	}
 	
 	public Predicate<E> getPredicateOrFalsePredicateIfPredicateIsNull() {
@@ -286,7 +286,7 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 		}
 		
 		public static <E, C extends Criteria<E, C, T>, T extends Criteria.TestContext<E, C>> TestContext<E, C> create(C criteria) {
-			return (TestContext<E, C>)new TestContext<>(criteria);
+			return new TestContext<>(criteria);
 		}
 		
 		public C getCriteria() {
@@ -329,7 +329,7 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 	}
 	
 	
-	public static class Simple<E, C extends Simple<E, C>> {
+	public static class Simple<E, C extends Simple<E, C>> implements Closeable {
 		protected Predicate<E> predicate;
 		protected Function<Predicate<E>, Predicate<E>> logicalOperator;
 		
@@ -344,11 +344,11 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 		}
 		
 		public C and(C criteria) {
-			return logicOperation((C)this.createCopy(), criteria.createCopy(), (predicate) -> predicate::and, newInstance());
+			return logicOperation(this.createCopy(), criteria.createCopy(), (predicate) -> predicate::and, newInstance());
 		}
 		
 		public C or(C criteria) {
-			return logicOperation((C)this.createCopy(), criteria.createCopy(), (predicate) -> predicate::or, newInstance());
+			return logicOperation(this.createCopy(), criteria.createCopy(), (predicate) -> predicate::or, newInstance());
 		}
 		
 		protected C logicOperation(C leftCriteria, C rightCriteria, 
@@ -365,7 +365,7 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 		}
 		
 		
-		public C allThat(final Predicate<E> predicate) {
+		public C allThoseThatMatch(final Predicate<E> predicate) {
 			this.predicate = concat(
 				this.predicate,
 				(entity) -> predicate.test(entity)
@@ -422,18 +422,18 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 		
 		
 		@SuppressWarnings("hiding")
-		<E, C extends Simple<E, C>> Predicate<E> consumeLogicalOperator(
+		<E, C extends Simple<E, C>> Predicate<E> consumeLogicalOperator (
 			Predicate<E> input,
 			Function<Predicate<E>, 
 			Predicate<E>> logicalOperator
 		) {
 			return Optional.ofNullable(logicalOperator).map(logOp -> {
 				return logicalOperator.apply(input);
-			}).orElseThrow(() -> 
-				Throwables.toRuntimeException(
-					"A call to and/or method is necessary before calling " +
-					Thread.currentThread().getStackTrace()[9].getMethodName() + " at " +
-					Thread.currentThread().getStackTrace()[10]
+			}).orElseGet(() -> 
+				Throwables.throwException(
+					"A call to and/or method is necessary before calling {} at {}",
+					Thread.currentThread().getStackTrace()[10].getMethodName(),
+					Thread.currentThread().getStackTrace()[11]
 				)
 			);
 		}
@@ -447,33 +447,33 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 		}
 		
 		public boolean testWithFalseResultForNullPredicate(E entity) {
-			return getPredicate(false).test(entity);
+			return getPredicateOrFalsePredicateIfPredicateIsNull().test(entity);
 		}		
 		
 		public boolean testWithTrueResultForNullPredicate(E entity) {
-			return getPredicate(true).test(entity);
+			return getPredicateOrTruePredicateIfPredicateIsNull().test(entity);
 		}
 		
 		public boolean testWithFalseResultForNullEntityOrTrueResultForNullPredicate(E entity) {
-			return Optional.ofNullable(entity).map(ent -> getPredicate(true).test(ent)).orElseGet(() -> 
+			return Optional.ofNullable(entity).map(ent -> getPredicateOrTruePredicateIfPredicateIsNull().test(ent)).orElseGet(() -> 
 				false
 			);
 		}
 		
 		public boolean testWithTrueResultForNullEntityOrTrueResultForNullPredicate(E entity) {
-			return Optional.ofNullable(entity).map(ent -> getPredicate(true).test(ent)).orElseGet(() -> 
+			return Optional.ofNullable(entity).map(ent -> getPredicateOrTruePredicateIfPredicateIsNull().test(ent)).orElseGet(() -> 
 				true
 			);
 		}
 		
 		public boolean testWithFalseResultForNullEntityOrFalseResultForNullPredicate(E entity) {
-			return Optional.ofNullable(entity).map(ent -> getPredicate(false).test(ent)).orElseGet(() -> 
+			return Optional.ofNullable(entity).map(ent -> getPredicateOrFalsePredicateIfPredicateIsNull().test(ent)).orElseGet(() -> 
 				false
 			);
 		}
 		
 		public boolean testWithTrueResultForNullEntityOrFalseResultForNullPredicate(E entity) {
-			return Optional.ofNullable(entity).map(ent -> getPredicate(false).test(ent)).orElseGet(() -> 
+			return Optional.ofNullable(entity).map(ent -> getPredicateOrFalsePredicateIfPredicateIsNull().test(ent)).orElseGet(() -> 
 				true
 			);
 		}
@@ -500,7 +500,7 @@ public class Criteria<E, C extends Criteria<E, C, T>, T extends Criteria.TestCon
 		}
 		
 		protected C newInstance() {
-			return ThrowingSupplier.get(() -> {
+			return Executor.get(() -> {
 				return (C)Constructors.newInstanceDirectOf(this.getClass());
 			});
 		}

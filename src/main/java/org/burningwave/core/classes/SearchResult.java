@@ -36,18 +36,19 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import org.burningwave.core.Component;
+import org.burningwave.core.Closeable;
 import org.burningwave.core.Criteria;
+import org.burningwave.core.ManagedLogger;
 
-public class SearchResult<E> implements Component {
+public class SearchResult<E> implements Closeable, ManagedLogger {
 	SearchContext<E> context;
-	ClassPathScannerAbst<E, ?, ?> classPathScanner;
+	ClassPathScanner.Abst<E, ?, ?> classPathScanner;
 	
 	SearchResult(SearchContext<E> context) {
 		this.context = context;
 	}
 	
-	void setClassPathScanner(ClassPathScannerAbst<E, ?, ?> classPathScanner) {
+	void setClassPathScanner(ClassPathScanner.Abst<E, ?, ?> classPathScanner) {
 		this.classPathScanner = classPathScanner;
 		classPathScanner.register(this);
 	}
@@ -75,18 +76,18 @@ public class SearchResult<E> implements Component {
 	public <C extends CriteriaWithClassElementsSupplyingSupport<E, C, T>, T extends Criteria.TestContext<E, C>> Map.Entry<String, E> getUnique(C criteria) {
 		Map<String, E> itemsFound = getClasses(criteria);
 		if (itemsFound.size() > 1) {
-			throw Throwables.toRuntimeException("Found more than one element");
+			Throwables.throwException("Found more than one element");
 		}
 		return itemsFound.entrySet().stream().findFirst().orElseGet(() -> null);
 	}
 	
 	<C extends CriteriaWithClassElementsSupplyingSupport<E, C, T>, T extends Criteria.TestContext<E, C>> C createCriteriaCopy(C criteria) {
 		C criteriaCopy = criteria.createCopy().init(
-				context.getSearchConfig().getClassCriteria().getClassSupplier(),
-				context.getSearchConfig().getClassCriteria().getByteCodeSupplier()
-			);
-			Optional.ofNullable(context.getSearchConfig().getClassCriteria().getClassesToBeUploaded()).ifPresent(classesToBeUploaded -> criteriaCopy.useClasses(classesToBeUploaded));
-			return criteriaCopy;
+			context.getSearchConfig().getClassCriteria().getClassSupplier(),
+			context.getSearchConfig().getClassCriteria().getByteCodeSupplier()
+		);
+		Optional.ofNullable(context.getSearchConfig().getClassCriteria().getClassesToBeUploaded()).ifPresent(classesToBeUploaded -> criteriaCopy.useClasses(classesToBeUploaded));
+		return criteriaCopy;
 	}
 	
 	<M extends Member, C extends MemberCriteria<M, C, T>, T extends Criteria.TestContext<M, C>> C createCriteriaCopy(C criteria) {
@@ -105,6 +106,10 @@ public class SearchResult<E> implements Component {
 	
 	public void waitForSearchEnding() {
 		context.waitForSearchEnding();
+	}
+	
+	public Collection<String> getSkippedClassNames() {
+		return context.getSkippedClassNames();
 	}
 	
 	@Override

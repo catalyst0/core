@@ -19,13 +19,11 @@ public class ClassPathHunterTest extends BaseTest {
 				SearchConfig.forPaths(
 					componentSupplier.getPathHelper().getMainClassPaths()
 				).by(
-					ClassCriteria.create().byClasses((uploadedClasses, targetClass) ->
+					ClassCriteria.create().byClassesThatMatch((uploadedClasses, targetClass) ->
 						uploadedClasses.get(Closeable.class).isAssignableFrom(targetClass)
 					).useClasses(
 						Closeable.class
 					)
-				).deleteFoundItemsOnClose(
-					true
 				)
 			),
 			(result) ->
@@ -42,13 +40,11 @@ public class ClassPathHunterTest extends BaseTest {
 				SearchConfig.forPaths(
 					componentSupplier.getPathHelper().getMainClassPaths()
 				).by(
-					ClassCriteria.create().byClasses((uploadedClasses, targetClass) ->
+					ClassCriteria.create().byClassesThatMatch((uploadedClasses, targetClass) ->
 						uploadedClasses.get(Complex.Data.Item.class).isAssignableFrom(targetClass)
 					).useClasses(
 						Complex.Data.Item.class
 					)
-				).deleteFoundItemsOnClose(
-					true
 				)
 			),
 			(result) ->
@@ -71,13 +67,11 @@ public class ClassPathHunterTest extends BaseTest {
 		testNotEmpty(
 			() -> componentSupplier.getClassPathHunter().findBy(
 				searchConfig.by(
-					ClassCriteria.create().byClasses((uploadedClasses, targetClass) ->
+					ClassCriteria.create().byClassesThatMatch((uploadedClasses, targetClass) ->
 						uploadedClasses.get(Closeable.class).isAssignableFrom(targetClass)
 					).useClasses(
 						Closeable.class
 					)
-				).deleteFoundItemsOnClose(
-					true
 				)
 			),
 			(result) ->

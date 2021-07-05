@@ -28,10 +28,13 @@
  */
 package org.burningwave.core;
 
-import static org.burningwave.core.assembler.StaticComponentContainer.Paths;
+import static org.burningwave.core.assembler.StaticComponentContainer.BackgroundExecutor;
+import static org.burningwave.core.assembler.StaticComponentContainer.IterableObjectHelper;
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
+import static org.burningwave.core.assembler.StaticComponentContainer.Objects;
 import static org.burningwave.core.assembler.StaticComponentContainer.Streams;
+import static org.burningwave.core.assembler.StaticComponentContainer.Synchronizer;
 
-import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -41,19 +44,21 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import org.burningwave.core.concurrent.Mutex;
+import org.burningwave.core.classes.Members;
 import org.burningwave.core.io.FileSystemItem;
 import org.burningwave.core.io.IterableZipContainer;
 
 @SuppressWarnings("unchecked")
-public class Cache implements Component {
+public class Cache implements ManagedLogger {
 	public final PathForResources<ByteBuffer> pathForContents;
 	public final PathForResources<FileSystemItem> pathForFileSystemItems;
-	public final PathForResources<IterableZipContainer> pathForZipFiles;
+	public final PathForResources<IterableZipContainer> pathForIterableZipContainers;
 	public final ObjectAndPathForResources<ClassLoader, Field[]> classLoaderForFields;
 	public final ObjectAndPathForResources<ClassLoader, Method[]> classLoaderForMethods;
 	public final ObjectAndPathForResources<ClassLoader, Constructor<?>[]> classLoaderForConstructors;
@@ -61,49 +66,67 @@ public class Cache implements Component {
 	public final ObjectAndPathForResources<ClassLoader, Collection<Constructor<?>>> uniqueKeyForConstructors;
 	public final ObjectAndPathForResources<ClassLoader, Collection<Method>> uniqueKeyForMethods;
 	public final ObjectAndPathForResources<ClassLoader, Object> bindedFunctionalInterfaces;
-	public final ObjectAndPathForResources<ClassLoader, Map.Entry<java.lang.reflect.Executable, MethodHandle>> uniqueKeyForExecutableAndMethodHandle;
+	public final ObjectAndPathForResources<ClassLoader, Members.Handler.OfExecutable.Box<?>> uniqueKeyForExecutableAndMethodHandle;
 	
 	private Cache() {
-		logInfo("Building cache");
-		pathForContents = new PathForResources<>(1L, Streams::shareContent);
-		pathForFileSystemItems = new PathForResources<>(1L, fileSystemItem -> fileSystemItem);
-		pathForZipFiles = new PathForResources<>(1L, zipFileContainer -> zipFileContainer);
-		classLoaderForFields = new ObjectAndPathForResources<>(1L, fields -> fields);
-		classLoaderForMethods = new ObjectAndPathForResources<>(1L, methods -> methods);
-		uniqueKeyForFields = new ObjectAndPathForResources<>(1L, field -> field);
-		uniqueKeyForMethods = new ObjectAndPathForResources<>(1L, constructors -> constructors);
-		uniqueKeyForConstructors = new ObjectAndPathForResources<>(1L, methods -> methods);
-		classLoaderForConstructors = new ObjectAndPathForResources<>(1L, constructors -> constructors);
-		bindedFunctionalInterfaces = new ObjectAndPathForResources<>(1L, functionalInterface -> functionalInterface);	
-		uniqueKeyForExecutableAndMethodHandle = new ObjectAndPathForResources<>(1L, methodHandle -> methodHandle);
+		ManagedLoggersRepository.logInfo(getClass()::getName, "Building cache");
+		pathForContents = new PathForResources<>(Streams::shareContent);
+		pathForFileSystemItems = new PathForResources<>(
+			(path, fileSystemItem) -> 
+				fileSystemItem.destroy()
+		);
+		pathForIterableZipContainers = new PathForResources<>(
+			(path, zipFileContainer) -> 
+				zipFileContainer.destroy()
+		);
+		classLoaderForFields = new ObjectAndPathForResources<>();
+		classLoaderForMethods = new ObjectAndPathForResources<>();
+		uniqueKeyForFields = new ObjectAndPathForResources<>();
+		uniqueKeyForMethods = new ObjectAndPathForResources<>();
+		uniqueKeyForConstructors = new ObjectAndPathForResources<>();
+		classLoaderForConstructors = new ObjectAndPathForResources<>();
+		bindedFunctionalInterfaces = new ObjectAndPathForResources<>();	
+		uniqueKeyForExecutableAndMethodHandle = new ObjectAndPathForResources<>();
 	}
 	
 	public static Cache create() {
 		return new Cache();
 	}
 	
-	public static class ObjectAndPathForResources<T, R> implements Component  {
-		
+	public static class ObjectAndPathForResources<T, R> implements Component {
 		Map<T, PathForResources<R>> resources;
 		Supplier<PathForResources<R>> pathForResourcesSupplier;
-		Mutex.Manager mutexManagerForResources;
+		String instanceId;
+		
+		public ObjectAndPathForResources() {
+			this(1L, item -> item, null );
+		}
+		
+		public ObjectAndPathForResources(Long partitionStartLevel) {
+			this(partitionStartLevel, item -> item, null);
+		}
 		
 		public ObjectAndPathForResources(Long partitionStartLevel, Function<R, R> sharer) {
+			this(partitionStartLevel, sharer, null);
+		}
+		
+		public ObjectAndPathForResources(Long partitionStartLevel, Function<R, R> sharer, BiConsumer<String, R> itemDestroyer) {
 			this.resources = new HashMap<>();
-			this.pathForResourcesSupplier = () -> new PathForResources<>(partitionStartLevel, sharer);
-			mutexManagerForResources = Mutex.Manager.create(this);
+			this.pathForResourcesSupplier = () -> new PathForResources<>(partitionStartLevel, sharer, itemDestroyer);
+			this.instanceId = Objects.getId(this);
 		}
 
 		public R getOrUploadIfAbsent(T object, String path, Supplier<R> resourceSupplier) {
 			PathForResources<R> pathForResources = resources.get(object);
 			if (pathForResources == null) {
-				synchronized (mutexManagerForResources.getMutex(object.toString())) {
-					pathForResources = resources.get(object);
-					if (pathForResources == null) {
-						pathForResources = pathForResourcesSupplier.get();
-						resources.put(object, pathForResources);
-					}					
-				}
+				pathForResources = Synchronizer.execute(instanceId + "_" + Objects.getId(object), () -> {
+					PathForResources<R> pathForResourcesTemp = resources.get(object);
+					if (pathForResourcesTemp == null) {
+						pathForResourcesTemp = pathForResourcesSupplier.get();
+						resources.put(object, pathForResourcesTemp);
+					}
+					return pathForResourcesTemp;
+				});
 			}
 			return pathForResources.getOrUploadIfAbsent(path, resourceSupplier);
 		}
@@ -111,52 +134,100 @@ public class Cache implements Component {
 		public R get(T object, String path) {
 			PathForResources<R> pathForResources = resources.get(object);
 			if (pathForResources == null) {
-				synchronized (mutexManagerForResources.getMutex(object.toString())) {
-					pathForResources = resources.get(object);
-					if (pathForResources == null) {
-						pathForResources = pathForResourcesSupplier.get();
-						resources.put(object, pathForResources);
-					}					
-				}
+				pathForResources = Synchronizer.execute(instanceId + "_mutexManagerForResources_" + Objects.getId(object), () -> {
+					PathForResources<R> pathForResourcesTemp = resources.get(object);
+					if (pathForResourcesTemp == null) {
+						pathForResourcesTemp = pathForResourcesSupplier.get();
+						resources.put(object, pathForResourcesTemp);
+					}
+					return pathForResourcesTemp;
+				});
 			}
 			return pathForResources.get(path);
 		}
 		
-		public PathForResources<R> remove(T object) {
-			return resources.remove(object);
+		public PathForResources<R> remove(T object, boolean destroyItems) {
+			PathForResources<R> pathForResources = resources.remove(object);
+			if (pathForResources != null && destroyItems) {
+				pathForResources.clear(destroyItems);
+			}
+			return pathForResources;
 		}
-
+		
 		public R removePath(T object, String path) {
+			return removePath(object, path, false);
+		}
+		
+		public R removePath(T object, String path, boolean destroyItem) {
 			PathForResources<R> pathForResources = resources.get(object);
 			if (pathForResources != null) {
-				return pathForResources.remove(path);
+				return pathForResources.remove(path, destroyItem);
 			}
 			return null;
 		}
 		
+		@Override
 		public ObjectAndPathForResources<T, R> clear() {
-			resources.clear();
-			mutexManagerForResources.clear();
+			return clear(false);
+		}
+		
+		public ObjectAndPathForResources<T, R> clear(boolean destroyItems) {
+			Map<T, PathForResources<R>> resources;
+			synchronized (this.resources) {	
+				resources = this.resources;
+				this.resources = new HashMap<>();
+			}
+			BackgroundExecutor.createTask(() -> {
+				for (Entry<T, PathForResources<R>> item : resources.entrySet()) {
+					item.getValue().clear(destroyItems);
+				}
+				resources.clear();
+			}, Thread.MIN_PRIORITY).submit();		
 			return this;
 		}
 	}
 	
 	public static class PathForResources<R> implements Component  {
-
 		Map<Long, Map<String, Map<String, R>>> resources;	
 		Long partitionStartLevel;
 		Function<R, R> sharer;
-		Mutex.Manager mutexManagerForPartitions;
-		Mutex.Manager mutexManagerForLoadedResources;
-		Mutex.Manager mutexManagerForPartitionedResources;
+		BiConsumer<String, R> itemDestroyer;
+		String instanceId;
+		
+		private PathForResources() {
+			this(1L, item -> item, null);
+		}
+		
+		private PathForResources(Long partitionStartLevel) {
+			this(partitionStartLevel, item -> item, null);
+		}
+		
+		private PathForResources(Function<R, R> sharer) {
+			this(1L, sharer, null);
+		}
+		
+		private PathForResources(BiConsumer<String, R> itemDestroyer) {
+			this(1L, item -> item, itemDestroyer);
+		}
 		
 		private PathForResources(Long partitionStartLevel, Function<R, R> sharer) {
+			this(partitionStartLevel, sharer, null);
+		}
+		
+		private PathForResources(Function<R, R> sharer, BiConsumer<String, R> itemDestroyer) {
+			this(1L, item -> item, itemDestroyer);
+		}
+		
+		private PathForResources(Long partitionStartLevel, BiConsumer<String, R> itemDestroyer) {
+			this(partitionStartLevel, item -> item, itemDestroyer);
+		}
+		
+		private PathForResources(Long partitionStartLevel, Function<R, R> sharer, BiConsumer<String, R> itemDestroyer) {
 			this.partitionStartLevel = partitionStartLevel;
 			this.sharer = sharer;
-			resources = new HashMap<>();
-			mutexManagerForPartitions = Mutex.Manager.create(this);
-			mutexManagerForLoadedResources = Mutex.Manager.create(this);
-			mutexManagerForPartitionedResources = Mutex.Manager.create(this);
+			this.resources = new HashMap<>();
+			this.itemDestroyer = itemDestroyer;
+			this.instanceId = this.toString();
 		}
 		
 		Map<String, R> retrievePartition(Map<String, Map<String, R>> partion, Long partitionIndex, String path) {
@@ -167,12 +238,14 @@ public class Cache implements Component {
 			}
 			Map<String, R> innerPartion = partion.get(partitionKey);
 			if (innerPartion == null) {
-				synchronized (mutexManagerForPartitions.getMutex(partitionKey)) {
-					innerPartion = partion.get(partitionKey);
-					if (innerPartion == null) {
-						partion.put(partitionKey, innerPartion = new HashMap<>());
+				String finalPartitionKey = partitionKey;
+				innerPartion = Synchronizer.execute(instanceId + "_mutexManagerForPartitions_" + finalPartitionKey, () -> {
+					Map<String, R> innerPartionTemp = partion.get(finalPartitionKey);
+					if (innerPartionTemp == null) {
+						partion.put(finalPartitionKey, innerPartionTemp = new HashMap<>());
 					}
-				}
+					return innerPartionTemp;
+				});
 			}
 			return innerPartion;
 		}
@@ -180,60 +253,56 @@ public class Cache implements Component {
 		R getOrUploadIfAbsent(Map<String, R> loadedResources, String path, Supplier<R> resourceSupplier) {
 			R resource = loadedResources.get(path);
 			if (resource == null) {
-				synchronized (mutexManagerForLoadedResources.getMutex(path)) {
-					resource = loadedResources.get(path);
-					if (resource == null && resourceSupplier != null) {
-						resource = resourceSupplier.get();
-						if (resource != null) {
-							loadedResources.put(path, resource = sharer.apply(resource));
+				resource = Synchronizer.execute(instanceId + "_mutexManagerForLoadedResources_" + path, () -> {
+					R resourceTemp = loadedResources.get(path);
+					if (resourceTemp == null && resourceSupplier != null) {
+						resourceTemp = resourceSupplier.get();
+						if (resourceTemp != null) {
+							loadedResources.put(path, resourceTemp = sharer.apply(resourceTemp));
 						}
 					}
-				}
+					return resourceTemp;
+				});
 			}
 			return resource != null? 
 				sharer.apply(resource) :
 				resource;
 		}
 		
-		public R upload(Map<String, R> loadedResources, String path, Supplier<R> resourceSupplier) {
-			R resource = null;
-			synchronized (mutexManagerForLoadedResources.getMutex(path)) {
-				if (resourceSupplier != null) {
-					resource = resourceSupplier.get();
-					if (resource != null) {
-						loadedResources.put(path, resource = sharer.apply(resource));
-					}
+		public R upload(Map<String, R> loadedResources, String path, Supplier<R> resourceSupplier, boolean destroy) {
+			R oldResource = remove(path, destroy);
+			Synchronizer.execute(instanceId + "_mutexManagerForLoadedResources_" + path, () -> {
+				R resourceTemp = resourceSupplier.get();
+				if (resourceTemp != null) {
+					loadedResources.put(path, resourceTemp = sharer.apply(resourceTemp));
 				}
-			}
-			return resource != null? 
-				sharer.apply(resource) :
-				resource;
+			});
+			return oldResource;
 		}
 		
 		Map<String, Map<String, R>> retrievePartition(Map<Long, Map<String, Map<String, R>>> partitionedResources, Long partitionIndex) {
 			Map<String, Map<String, R>> resources = partitionedResources.get(partitionIndex);
 			if (resources == null) {
-				synchronized (mutexManagerForPartitionedResources.getMutex(partitionIndex.toString())) {
-					resources = partitionedResources.get(partitionIndex);
-					if (resources == null) {
-						partitionedResources.put(partitionIndex, resources = new HashMap<>());
+				resources = Synchronizer.execute(instanceId + "_mutexManagerForPartitionedResources_" + partitionIndex.toString(), () -> {
+					Map<String, Map<String, R>> resourcesTemp = partitionedResources.get(partitionIndex);
+					if (resourcesTemp == null) {
+						partitionedResources.put(partitionIndex, resourcesTemp = new HashMap<>());
 					}
-				}
+					return resourcesTemp;
+				});
 			}
 			return resources;
 		}
 		
-		public R upload(String path, Supplier<R> resourceSupplier) {
-			path = Paths.clean(path);
+		public R upload(String path, Supplier<R> resourceSupplier, boolean destroy) {
 			Long occurences = path.chars().filter(ch -> ch == '/').count();
 			Long partitionIndex = occurences > partitionStartLevel? occurences : partitionStartLevel;
 			Map<String, Map<String, R>> partion = retrievePartition(resources, partitionIndex);
 			Map<String, R> nestedPartition = retrievePartition(partion, partitionIndex, path);
-			return upload(nestedPartition, path, resourceSupplier);
+			return upload(nestedPartition, path, resourceSupplier, destroy);
 		}
 		
 		public R getOrUploadIfAbsent(String path, Supplier<R> resourceSupplier) {
-			path = Paths.clean(path);
 			Long occurences = path.chars().filter(ch -> ch == '/').count();
 			Long partitionIndex = occurences > partitionStartLevel? occurences : partitionStartLevel;
 			Map<String, Map<String, R>> partion = retrievePartition(resources, partitionIndex);
@@ -245,13 +314,22 @@ public class Cache implements Component {
 			return getOrUploadIfAbsent(path, null);
 		}
 		
-		public R remove(String path) {
-			path = Paths.clean(path);
+		public R remove(String path, boolean destroy) {
 			Long occurences = path.chars().filter(ch -> ch == '/').count();
 			Long partitionIndex = occurences > partitionStartLevel? occurences : partitionStartLevel;
 			Map<String, Map<String, R>> partion = retrievePartition(resources, partitionIndex);
 			Map<String, R> nestedPartition = retrievePartition(partion, partitionIndex, path);
-			return nestedPartition.remove(path);
+			R item = Synchronizer.execute(instanceId + "_mutexManagerForLoadedResources_" + path, () -> {
+				return nestedPartition.remove(path);
+			});
+			if (itemDestroyer != null && destroy && item != null) {
+				String finalPath = path;
+				BackgroundExecutor.createTask(() -> 
+					itemDestroyer.accept(finalPath, item),
+					Thread.MIN_PRIORITY
+				).submit();
+			}
+			return item;
 		}
 		
 		public int getLoadedResourcesCount() {
@@ -268,40 +346,71 @@ public class Cache implements Component {
 			return count;
 		}
 		
+		@Override
 		public PathForResources<R> clear() {
-			resources.clear();
-			mutexManagerForPartitions.clear();         
-			mutexManagerForLoadedResources.clear();    
-			mutexManagerForPartitionedResources.clear();
+			return clear(false);
+		}
+		
+		public PathForResources<R> clear(boolean destroyItems) {
+			Map<Long, Map<String, Map<String, R>>> partitions;
+			synchronized (this.resources) {	
+				partitions = this.resources;
+				this.resources = new HashMap<>();
+			}
+			BackgroundExecutor.createTask(() -> {
+				clearResources(partitions, destroyItems);
+			}, Thread.MIN_PRIORITY).submit();
 			return this;
 		}
+
+		void clearResources(Map<Long, Map<String, Map<String, R>>> partitions, boolean destroyItems) {
+			for (Entry<Long, Map<String, Map<String, R>>> partition : partitions.entrySet()) {
+				for (Entry<String, Map<String, R>> nestedPartition : partition.getValue().entrySet()) {
+					if (itemDestroyer != null && destroyItems) {
+						IterableObjectHelper.deepClear(nestedPartition.getValue(), (path, resource) -> { 
+							this.itemDestroyer.accept(path, resource);
+						});
+					} else {
+						nestedPartition.getValue().clear();
+					}
+				}
+				partition.getValue().clear();
+			}
+			partitions.clear();
+		}
+		
 	}
 	
 	public void clear(Cleanable... excluded) {
+		clear(false, excluded);
+	}
+	
+	public void clear(boolean destroyItems, Cleanable... excluded) {
 		Set<Cleanable> toBeExcluded = excluded != null && excluded.length > 0 ?
 			new HashSet<>(Arrays.asList(excluded)) :
 			null;
-		clear(pathForContents, toBeExcluded);
-		clear(pathForFileSystemItems, toBeExcluded);
-		clear(pathForZipFiles, toBeExcluded);
-		clear(classLoaderForFields, toBeExcluded);
-		clear(classLoaderForMethods, toBeExcluded);
-		clear(classLoaderForConstructors, toBeExcluded);
-		clear(bindedFunctionalInterfaces, toBeExcluded);
-		clear(uniqueKeyForFields, toBeExcluded);
-		clear(uniqueKeyForConstructors, toBeExcluded);
-		clear(uniqueKeyForMethods, toBeExcluded);
-		clear(uniqueKeyForExecutableAndMethodHandle, toBeExcluded);
+		clear(pathForContents, toBeExcluded, destroyItems);
+		clear(pathForFileSystemItems, toBeExcluded, destroyItems);
+		clear(pathForIterableZipContainers, toBeExcluded, destroyItems);
+		clear(classLoaderForFields, toBeExcluded, destroyItems);
+		clear(classLoaderForMethods, toBeExcluded, destroyItems);
+		clear(classLoaderForConstructors, toBeExcluded, destroyItems);
+		clear(bindedFunctionalInterfaces, toBeExcluded, destroyItems);
+		clear(uniqueKeyForFields, toBeExcluded, destroyItems);
+		clear(uniqueKeyForConstructors, toBeExcluded, destroyItems);
+		clear(uniqueKeyForMethods, toBeExcluded, destroyItems);
+		clear(uniqueKeyForExecutableAndMethodHandle, toBeExcluded, destroyItems);
 	}
-	
-	private void clear(Cleanable cache, Set<Cleanable> excluded) {
+
+	private void clear(Cleanable cache, Set<Cleanable> excluded, boolean destroyItems) {
 		if (excluded == null || !excluded.contains(cache)) {
-			cache.clear();
+			if (!destroyItems) {
+				cache.clear();
+			} else if (cache instanceof ObjectAndPathForResources) {
+				((ObjectAndPathForResources<?,?>)cache).clear(destroyItems);
+			}  else if (cache instanceof PathForResources) {
+				((PathForResources<?>)cache).clear(destroyItems);
+			}
 		}
-	}
-	
-	@Override
-	public void close() {
-		clear();
 	}
 }

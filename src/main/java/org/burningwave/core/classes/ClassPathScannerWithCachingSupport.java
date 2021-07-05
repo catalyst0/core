@@ -28,8 +28,11 @@
  */
 package org.burningwave.core.classes;
 
+import static org.burningwave.core.assembler.StaticComponentContainer.IterableObjectHelper;
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
+import static org.burningwave.core.assembler.StaticComponentContainer.Synchronizer;
+
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -37,283 +40,273 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 
 import org.burningwave.core.classes.ClassCriteria.TestContext;
 import org.burningwave.core.classes.SearchContext.InitContext;
-import org.burningwave.core.concurrent.Mutex;
+import org.burningwave.core.concurrent.Synchronizer.Mutex;
 import org.burningwave.core.io.FileSystemItem;
 import org.burningwave.core.io.PathHelper;
 import org.burningwave.core.iterable.Properties;
 
 
-public abstract class ClassPathScannerWithCachingSupport<I, C extends SearchContext<I>, R extends SearchResult<I>> extends ClassPathScannerAbst<I, C, R> {
+public interface ClassPathScannerWithCachingSupport<I, R extends SearchResult<I>> extends ClassPathScanner<I, R>{
 	
-	public static class Configuration {
-		public static class Key {
-			
-			public final static String PATH_LOADING_LOCK = "hunters.path-loading-lock";							
-		}
+	public void clearCache();
+	
+	public CacheScanner<I, R> loadInCache(CacheableSearchConfig searchConfig);
+	
+	public R findAndCache();
+	
+	public R findBy(CacheableSearchConfig searchConfig);
+	
+	public void clearCache(boolean closeSearchResults);
+	
+	abstract class Abst<I, C extends SearchContext<I>, R extends SearchResult<I>> extends ClassPathScanner.Abst<I, C, R> {
 		
-		public final static Map<String, Object> DEFAULT_VALUES;
-	
-		static {
-			DEFAULT_VALUES = new HashMap<>();
-	
-			DEFAULT_VALUES.put(
-				Key.PATH_LOADING_LOCK, 
-				PathLoadingLock.FOR_PATH.label
+		Map<String, Map<String, I>> cache;
+		
+		Abst(
+			PathHelper pathHelper,
+			Function<InitContext, C> contextSupplier,
+			Function<C, R> resultSupplier,
+			Object defaultPathScannerClassLoaderOrDefaultPathScannerClassLoaderSupplier,
+			Properties config
+		) {
+			super(
+				pathHelper,
+				contextSupplier,
+				resultSupplier,
+				defaultPathScannerClassLoaderOrDefaultPathScannerClassLoaderSupplier,
+				config
 			);
+			this.cache = new ConcurrentHashMap<>();
 		}
-	}
-	
-	public static enum PathLoadingLock {
-		FOR_CACHE("forCache"),
-		FOR_PATH("forPath");
 		
-		public static PathLoadingLock forLabel(String label) {
-			for (PathLoadingLock item : PathLoadingLock.values()) { 
-			    if(item.label.equals(label)) {
-			    	return item;
-			    }
+		public void clearCache() {
+			clearCache(false);
+		}
+		
+		public CacheScanner<I, R> loadInCache(CacheableSearchConfig searchConfig) {
+			CacheableSearchConfig flatSearchConfig = SearchConfig.forPaths(
+				retrievePathsToBeScanned(searchConfig)
+			);
+			try (R result = findBy(
+				flatSearchConfig
+			)){};
+			return (srcCfg) -> 
+				findBy(srcCfg == null? searchConfig : srcCfg);
+		}
+		
+		public R findAndCache() {
+			return findBy(SearchConfig.create());
+		}
+	
+		public R findBy(CacheableSearchConfig searchConfig) {
+			return findBy(searchConfig, this::searchInCacheOrInFileSystem);
+		}
+		
+		public void clearCache(boolean closeSearchResults) {
+			this.defaultPathScannerClassLoaderManager.reset();
+			if (closeSearchResults) {
+				closeSearchResults();
 			}
-			return null;
-		}
-		
-		private String label;
-		
-		private PathLoadingLock(String label) {
-			this.label = label;
-		}
-		
-		public String getLabel() {
-			return label;
-		}
-		
-	}
-	
-	Map<String, Map<String, I>> cache;
-	Mutex.Manager mutexManager;
-	
-	ClassPathScannerWithCachingSupport(
-		Supplier<ClassHunter> classHunterSupplier,
-		PathHelper pathHelper,
-		Function<InitContext, C> contextSupplier,
-		Function<C, R> resultSupplier, 
-		Properties config
-	) {
-		super(
-			classHunterSupplier,
-			pathHelper,
-			contextSupplier,
-			resultSupplier,
-			config
-		);
-		this.cache = new ConcurrentHashMap<>();
-		this.mutexManager = Mutex.Manager.create(cache);
-		if (this.config.resolveStringValue(Configuration.Key.PATH_LOADING_LOCK, Configuration.DEFAULT_VALUES).equals(PathLoadingLock.FOR_CACHE.label)) {
-			this.mutexManager.disableLockForName();
-		}
-	}
-
-	public CacheScanner<I, R> loadInCache(CacheableSearchConfig searchConfig) {
-		try (R result = findBy(
-			SearchConfig.forPaths(
-				searchConfig.getPaths()
-			)
-		)){};
-		return (srcCfg) -> 
-			findBy(srcCfg == null? searchConfig : srcCfg);
-	}
-	
-	//Cached search
-	public R findBy(CacheableSearchConfig searchConfig) {
-		return findBy(searchConfig, this::searchInCacheOrInFileSystem);
-	}
-	
-	void searchInCacheOrInFileSystem(C context) {
-		CacheableSearchConfig searchConfig = context.getSearchConfig();
-		boolean scanFileCriteriaHasNoPredicate = searchConfig.getScanFileCriteria().hasNoPredicate();
-		boolean classCriteriaHasNoPredicate = searchConfig.getClassCriteria().hasNoPredicate();		
-		FileSystemItem.Criteria filterAndExecutor = getFileAndClassTesterAndExecutor(context);
-		//scanFileCriteria in this point has been changed by the previous method call
-		FileSystemItem.Criteria fileFilter = searchConfig.getScanFileCriteria();
-		context.getSearchConfig().getPaths().parallelStream().forEach(basePath -> {
-			searchInCacheOrInFileSystem(basePath, context,
-					scanFileCriteriaHasNoPredicate, classCriteriaHasNoPredicate, filterAndExecutor, fileFilter);
-		});
-	}
-
-	private void searchInCacheOrInFileSystem(
-		String basePath,
-		C context,
-		boolean scanFileCriteriaHasNoPredicate,
-		boolean classCriteriaHasNoPredicate,
-		FileSystemItem.Criteria filterAndExecutor,
-		FileSystemItem.Criteria fileFilter
-	) {
-		CacheableSearchConfig searchConfig = context.getSearchConfig();
-		FileSystemItem currentScannedPath = FileSystemItem.ofPath(basePath);
-		if (searchConfig.isRefreshCacheEnabled()) {
-			synchronized(mutexManager.getMutex(basePath)) {
-				Optional.ofNullable(cache.get(basePath)).ifPresent((classesForPath) -> {
-					cache.remove(basePath);
-					classesForPath.clear();
-					currentScannedPath.refresh();
+			Collection<String> pathsToBeRemoved = new HashSet<>(cache.keySet());
+			for (String path : pathsToBeRemoved) {
+				Synchronizer.execute( instanceId + "_" + path, () -> {				
+					FileSystemItem.ofPath(path).reset();
+					Map<String, I> items = cache.remove(path);
+					clearItemsForPath(items);
 				});
 			}
 		}
-		Map<String, I> classesForPath = cache.get(basePath);
-		if (classesForPath == null) {
-			if (classCriteriaHasNoPredicate && scanFileCriteriaHasNoPredicate) {
-				synchronized(mutexManager.getMutex(basePath)) {
-					classesForPath = cache.get(basePath);
-					if (classesForPath == null) {
-						currentScannedPath.findInAllChildren(filterAndExecutor);
-						Map<String, I> itemsForPath = new ConcurrentHashMap<>();
-						Map<String, I> itemsFound = context.getItemsFound(basePath);
-						if (itemsFound != null) {
-							itemsForPath.putAll(itemsFound);
+		
+		void searchInCacheOrInFileSystem(C context) {
+			IterableObjectHelper.iterateParallelIf(
+				context.getSearchConfig().getPaths(), 
+				basePath -> {
+					searchInCacheOrInFileSystem(
+						basePath, context
+					);
+				},
+				item -> item.size() > 1
+			);		
+		}
+	
+		private void searchInCacheOrInFileSystem(
+			String basePath,
+			C context
+		) {	
+			CacheableSearchConfig searchConfig = context.getSearchConfig();
+			FileSystemItem.Criteria fileFilter = searchConfig.buildScanFileCriteria();
+			FileSystemItem.Criteria filterAndExecutor = buildFileAndClassTesterAndExecutor(context, fileFilter);
+			boolean scanFileCriteriaHasNoPredicate = searchConfig.scanFileCriteriaHasNoPredicate();
+			boolean classCriteriaHasNoPredicate = searchConfig.getClassCriteria().hasNoPredicate();	
+			
+			FileSystemItem currentScannedPath = FileSystemItem.ofPath(basePath);
+			Predicate<String> refreshCache = searchConfig.getCheckForAddedClassesPredicate();
+			if (refreshCache != null && refreshCache.test(basePath)) {
+				Synchronizer.execute(instanceId + "_" + basePath, () -> {
+					Optional.ofNullable(cache.get(basePath)).ifPresent((classesForPath) -> {
+						cache.remove(basePath);
+						classesForPath.clear();
+					});
+				});
+				currentScannedPath.refresh();
+			}
+			Map<String, I> classesForPath = cache.get(basePath);
+			if (classesForPath == null) {
+				if (classCriteriaHasNoPredicate && scanFileCriteriaHasNoPredicate) {
+					Mutex mutex = Synchronizer.getMutex(instanceId + "_" + basePath);
+					synchronized(mutex) {
+						classesForPath = cache.get(basePath);
+						if (classesForPath == null) {
+							currentScannedPath.findInAllChildren(filterAndExecutor);
+							Map<String, I> itemsForPath = new ConcurrentHashMap<>();
+							Map<String, I> itemsFound = context.getItemsFound(basePath);
+							if (itemsFound != null) {
+								itemsForPath.putAll(itemsFound);
+							}
+							this.cache.put(basePath, itemsForPath);
+							Synchronizer.removeIfUnused(mutex);
+							return;
 						}
-						this.cache.put(basePath, itemsForPath);
-						return;
+						Synchronizer.removeIfUnused(mutex);
 					}
+					context.addAllItemsFound(basePath, classesForPath);
+					return;
+				} else {
+					currentScannedPath.findInAllChildren(filterAndExecutor);
+					return;
 				}
+			}
+			if (classCriteriaHasNoPredicate && scanFileCriteriaHasNoPredicate) {
 				context.addAllItemsFound(basePath, classesForPath);
-				return;
+			} else if (scanFileCriteriaHasNoPredicate) {
+				iterateAndTestCachedItems(context, basePath, classesForPath);
+			} else if (classCriteriaHasNoPredicate) {
+				iterateAndTestCachedPaths(context, basePath, classesForPath, fileFilter);
 			} else {
-				currentScannedPath.findInAllChildren(filterAndExecutor);
-				return;
+				iterateAndTestCachedPathsAndItems(context, basePath, classesForPath, fileFilter);
 			}
 		}
-		if (classCriteriaHasNoPredicate && scanFileCriteriaHasNoPredicate) {
-			context.addAllItemsFound(basePath, classesForPath);
-		} else if (scanFileCriteriaHasNoPredicate) {
-			iterateAndTestCachedItems(context, basePath, classesForPath);
-		} else if (classCriteriaHasNoPredicate) {
-			iterateAndTestCachedPaths(context, basePath, classesForPath, fileFilter);
-		} else {
-			iterateAndTestCachedPathsAndItems(context, basePath, classesForPath, fileFilter);
-		}
-	}
-	
-	void iterateAndTestCachedPaths(
-		C context,
-		String basePath,
-		Map<String, I> itemsForPath,
-		FileSystemItem.Criteria fileFilter
-	) {
-		FileSystemItem basePathFSI = FileSystemItem.ofPath(basePath);
-		FileSystemItem[] currentChildPathAndBasePath = new FileSystemItem[]{
-			null,
-			basePathFSI
-		};
-		Predicate<FileSystemItem[]> fileFilterPredicate = fileFilter.getPredicateOrTruePredicateIfPredicateIsNull();
-		for (Entry<String, I> cachedItemAsEntry : itemsForPath.entrySet()) {
-			String absolutePathOfItem = cachedItemAsEntry.getKey();
-			currentChildPathAndBasePath[0] = FileSystemItem.ofPath(absolutePathOfItem);
-			if (fileFilterPredicate.test(currentChildPathAndBasePath)) {
-				context.addItemFound(basePath, cachedItemAsEntry.getKey(), cachedItemAsEntry.getValue());
-			}
-		}
-	}
-
-	final <S extends SearchConfigAbst<S>> void iterateAndTestCachedPathsAndItems(
-		C context, 
-		String basePath,
-		Map<String, I>itemsForPath,
-		FileSystemItem.Criteria fileFilter
-	) {
-		FileSystemItem basePathFSI = FileSystemItem.ofPath(basePath);
-		FileSystemItem[] currentChildPathAndBasePath = new FileSystemItem[]{
-			null,
-			basePathFSI
-		};
-		Predicate<FileSystemItem[]> fileFilterPredicate = fileFilter.getPredicateOrTruePredicateIfPredicateIsNull();
-		for (Entry<String, I> cachedItemAsEntry : itemsForPath.entrySet()) {
-			String absolutePathOfItem = cachedItemAsEntry.getKey();
-			currentChildPathAndBasePath[0] = FileSystemItem.ofPath(absolutePathOfItem);
-			ClassCriteria.TestContext testContext;
-			if((testContext = testPathAndCachedItem(
-				context, currentChildPathAndBasePath, cachedItemAsEntry.getValue(), fileFilterPredicate
-			)).getResult()) {
-				addCachedItemToContext(context, testContext, basePath, cachedItemAsEntry);
-			}
-		}
-	}
-
-	void iterateAndTestCachedItems(C context, String basePath, Map<String, I> itemsForPath) {
-		for (Entry<String, I> cachedItemAsEntry : itemsForPath.entrySet()) {
-			ClassCriteria.TestContext testContext = testCachedItem(context, basePath, cachedItemAsEntry.getKey(), cachedItemAsEntry.getValue());
-			if(testContext.getResult()) {
-				addCachedItemToContext(context, testContext, basePath, cachedItemAsEntry);
-			}
-		}
-	}
-	
-	TestContext testPath(
-		C context, 
-		FileSystemItem[] filesToBeTested, 
-		Predicate<FileSystemItem[]> fileFilterPredicate
-	) {
-		if (fileFilterPredicate.test(filesToBeTested)) {
-			return context.getSearchConfig().getClassCriteria().testWithTrueResultForNullEntityOrTrueResultForNullPredicate(null);
-		}
-		return context.test(null);
-	}
-	
-	TestContext testPathAndCachedItem(
-		C context, 
-		FileSystemItem[] filesToBeTested, 
-		I item,
-		Predicate<FileSystemItem[]> fileFilterPredicate
-	) {
-		if (fileFilterPredicate.test(filesToBeTested)) {
-			return testCachedItem(context, filesToBeTested[1].getAbsolutePath(), filesToBeTested[0].getAbsolutePath(), item);
-		}
-		return context.test(null);
-	}
-
-	<S extends SearchConfigAbst<S>> void addCachedItemToContext(
-		C context, ClassCriteria.TestContext testContext, String path, Entry<String, I> cachedItemAsEntry
-	) {
-		context.addItemFound(path, cachedItemAsEntry.getKey(), cachedItemAsEntry.getValue());
-	}
-
-	abstract <S extends SearchConfigAbst<S>> ClassCriteria.TestContext testCachedItem(C context, String basePath, String absolutePathOfItem, I item);
-	
-	public void clearCache() {
-		clearCache(false);
-	}
-	
-	public void clearCache(boolean closeSearchResults) {
-		Collection<String> pathsToBeRemoved = new HashSet<>(cache.keySet());
-		for (String path : pathsToBeRemoved) {
-			synchronized(mutexManager.getMutex(path)) {
-				FileSystemItem.ofPath(path).reset();
-				Map<String, I> items = cache.remove(path);
-				if (items != null) {
-					items.clear();
+		
+		void iterateAndTestCachedPaths(
+			C context,
+			String basePath,
+			Map<String, I> itemsForPath,
+			FileSystemItem.Criteria fileFilter
+		) {
+			FileSystemItem basePathFSI = FileSystemItem.ofPath(basePath);
+			FileSystemItem[] currentChildPathAndBasePath = new FileSystemItem[]{
+				null,
+				basePathFSI
+			};
+			Predicate<FileSystemItem[]> fileFilterPredicate = fileFilter.getPredicateOrTruePredicateIfPredicateIsNull();
+			for (Entry<String, I> cachedItemAsEntry : itemsForPath.entrySet()) {
+				String absolutePathOfItem = cachedItemAsEntry.getKey();
+				try {				
+					currentChildPathAndBasePath[0] = FileSystemItem.ofPath(absolutePathOfItem);
+					if (fileFilterPredicate.test(currentChildPathAndBasePath)) {
+						context.addItemFound(basePath, cachedItemAsEntry.getKey(), cachedItemAsEntry.getValue());
+					}
+				} catch (Throwable exc) {
+					ManagedLoggersRepository.logError(getClass()::getName, "Could not test cached entry of path " + absolutePathOfItem, exc);
 				}
 			}
 		}
-		if (closeSearchResults) {
-			closeSearchResults();
-		}
-	}
 	
-	@Override
-	public void close() {
-		clearCache(false);
-		cache = null;
-		pathHelper = null;
-		contextSupplier = null;
-		Mutex.Manager mutexManager = this.mutexManager;
-		if (mutexManager != null) {
-			mutexManager.clear();
+		final <S extends SearchConfigAbst<S>> void iterateAndTestCachedPathsAndItems(
+			C context, 
+			String basePath,
+			Map<String, I>itemsForPath,
+			FileSystemItem.Criteria fileFilter
+		) {
+			FileSystemItem basePathFSI = FileSystemItem.ofPath(basePath);
+			FileSystemItem[] currentChildPathAndBasePath = new FileSystemItem[]{
+				null,
+				basePathFSI
+			};
+			Predicate<FileSystemItem[]> fileFilterPredicate = fileFilter.getPredicateOrTruePredicateIfPredicateIsNull();
+			for (Entry<String, I> cachedItemAsEntry : itemsForPath.entrySet()) {
+				String absolutePathOfItem = cachedItemAsEntry.getKey();
+				try {
+					currentChildPathAndBasePath[0] = FileSystemItem.ofPath(absolutePathOfItem);
+					ClassCriteria.TestContext testContext;
+					if((testContext = testPathAndCachedItem(
+						context, currentChildPathAndBasePath, cachedItemAsEntry.getValue(), fileFilterPredicate
+					)).getResult()) {
+						addCachedItemToContext(context, testContext, basePath, cachedItemAsEntry);
+					}
+				} catch (Throwable exc) {
+					ManagedLoggersRepository.logError(getClass()::getName, "Could not test cached entry of path " + absolutePathOfItem, exc);
+				}
+			}
 		}
-		this.mutexManager = null;
-		super.close();
+	
+		void iterateAndTestCachedItems(C context, String basePath, Map<String, I> itemsForPath) {
+			for (Entry<String, I> cachedItemAsEntry : itemsForPath.entrySet()) {
+				String absolutePathOfItem = cachedItemAsEntry.getKey();
+				try {
+					ClassCriteria.TestContext testContext = testCachedItem(context, basePath, absolutePathOfItem, cachedItemAsEntry.getValue());
+					if(testContext.getResult()) {
+						addCachedItemToContext(context, testContext, basePath, cachedItemAsEntry);
+					}
+				} catch (Throwable exc) {
+					ManagedLoggersRepository.logError(getClass()::getName, "Could not test cached entry of path " + absolutePathOfItem, exc);
+				}
+			}
+		}
+		
+		TestContext testPath(
+			C context, 
+			FileSystemItem[] filesToBeTested, 
+			Predicate<FileSystemItem[]> fileFilterPredicate
+		) {
+			if (fileFilterPredicate.test(filesToBeTested)) {
+				return context.getSearchConfig().getClassCriteria().testWithTrueResultForNullEntityOrTrueResultForNullPredicate(null);
+			}
+			return context.test(null);
+		}
+		
+		TestContext testPathAndCachedItem(
+			C context, 
+			FileSystemItem[] filesToBeTested, 
+			I item,
+			Predicate<FileSystemItem[]> fileFilterPredicate
+		) {
+			if (fileFilterPredicate.test(filesToBeTested)) {
+				return testCachedItem(context, filesToBeTested[1].getAbsolutePath(), filesToBeTested[0].getAbsolutePath(), item);
+			}
+			return context.test(null);
+		}
+	
+		<S extends SearchConfigAbst<S>> void addCachedItemToContext(
+			C context, ClassCriteria.TestContext testContext, String path, Entry<String, I> cachedItemAsEntry
+		) {
+			context.addItemFound(path, cachedItemAsEntry.getKey(), cachedItemAsEntry.getValue());
+		}
+	
+		abstract <S extends SearchConfigAbst<S>> ClassCriteria.TestContext testCachedItem(C context, String basePath, String absolutePathOfItem, I item);
+	
+		void clearItemsForPath(Map<String, I> items) {
+			if (items != null) {
+				items.clear();
+			}
+		}
+		
+		boolean isClosed() {
+			return cache == null;
+		}
+		
+		@Override
+		public void close() {
+			clearCache(false);
+			cache = null;
+			pathHelper = null;
+			contextSupplier = null;
+			super.close();
+		}
+	
 	}
 	
 	@FunctionalInterface

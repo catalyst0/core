@@ -1,22 +1,27 @@
-# Burningwave Core [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=%40Burningwave_fw%20Core%2C%20the%20%23Java%20frameworks%20building%20library%20%28works%20on%20%23Java8%20%23Java9%20%23Java10%20%23Java11%20%23Java12%20%23Java13%20%23Java14%20%23Java15-ea%29&url=https://github.com/burningwave/core%23burningwave-core-)
+# Burningwave Core [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=%40Burningwave_fw%20Core%2C%20the%20%23Java%20frameworks%20building%20library%20%28works%20on%20%23Java8%20%23Java9%20%23Java10%20%23Java11%20%23Java12%20%23Java13%20%23Java14%20%23Java15%20%23Java16%29&url=https://github.com/burningwave/core%23burningwave-core-)
 
 <a href="https://www.burningwave.org">
 <img src="https://raw.githubusercontent.com/burningwave/core/master/Burningwave-logo.png" alt="Burningwave-logo.png" height="180px" align="right"/>
 </a>
 
-[![Maven Central with version prefix filter](https://img.shields.io/maven-central/v/org.burningwave/core/7)](https://maven-badges.herokuapp.com/maven-central/org.burningwave/core/)
+[![Maven Central with version prefix filter](https://img.shields.io/maven-central/v/org.burningwave/core/8)](https://maven-badges.herokuapp.com/maven-central/org.burningwave/core/)
 [![GitHub](https://img.shields.io/github/license/burningwave/core)](https://github.com/burningwave/core/blob/master/LICENSE)
 
-[![Platforms](https://img.shields.io/badge/platforms-Windows%2C%20Max%20OS%2C%20Linux-orange)](https://github.com/burningwave/core/actions/runs/167454297)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%2C%20Max%20OS%2C%20Linux-orange)](https://github.com/burningwave/core/actions/runs/809066503)
 
-[![Supported JVM](https://img.shields.io/badge/supported%20JVM-8%2C%209%2C%2010%2C%2011%2C%2012%2C%2013%2C%2014%2C%2015ea-blueviolet)](https://github.com/burningwave/core/actions/runs/167454297)
+[![Supported JVM](https://img.shields.io/badge/supported%20JVM-8%2C%209%2C%2010%2C%2011%2C%2012%2C%2013%2C%2014%2C%2015%2C%2016-blueviolet)](https://github.com/burningwave/core/actions/runs/809066503)
 
 [![Coveralls github branch](https://img.shields.io/coveralls/github/burningwave/core/master)](https://coveralls.io/github/burningwave/core?branch=master)
-[![GitHub issues](https://img.shields.io/github/issues/burningwave/core)](https://github.com/burningwave/core/issues)
+[![GitHub open issues](https://img.shields.io/github/issues/burningwave/core)](https://github.com/burningwave/core/issues)
+[![GitHub closed issues](https://img.shields.io/github/issues-closed/burningwave/core)](https://github.com/burningwave/core/issues?q=is%3Aissue+is%3Aclosed)
 
-**Tested on Java versions ranging from 8 to 15-ea, Burningwave Core** is a fully independent, advanced, free and open source Java frameworks building library and it is useful for scanning class paths, generating classes at runtime, facilitating the use of reflection, scanning the filesystem, executing stringified source code and much more...
+[![ArtifactDownload](https://www.burningwave.org/generators/generate-burningwave-artifact-downloads-badge.php?type=svg&artifactId=core)](https://www.burningwave.org/artifact-downloads/?show-monthly-trend-chart=false)
 
-Burningwave Core contains **THE MOST POWERFUL CLASSPATH SCANNER** for criteria based classes search: it’s possible to search classes by every criteria that your immagination can made by using lambda expressions; **scan engine is highly optimized using direct allocated ByteBuffers to avoid heap saturation; searches are executed in multithreading context and are not affected by “_the issue of the same class loaded by different classloaders_”** (normally if you try to execute "isAssignableFrom" method on a same class loaded from different classloader it returns false).
+[![Gitter](https://badges.gitter.im/burningwave/core.svg)](https://gitter.im/burningwave/core?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+
+**Tested on Java versions ranging from 8 to 16, Burningwave Core** is a fully independent, advanced, free and open source Java frameworks building library and it is useful for scanning class paths, generating classes at runtime, facilitating the use of reflection, scanning the filesystem, executing stringified source code and much more...
+
+Burningwave Core contains **THE MOST POWERFUL CLASSPATH SCANNER**: it’s possible to search classes by every criteria that your imagination can make by using lambda expressions; **scan engine is highly optimized using direct allocated ByteBuffers to avoid heap saturation; searches are executed in multithreading context and are not affected by “_the issue of the same class loaded by different classloaders_”** (normally if you try to execute "isAssignableFrom" method on a same class loaded from different classloader it returns false).
 
 And now we will see:
 * [**including Burningwave Core in your project**](#Including-Burningwave-Core-in-your-project)
@@ -24,6 +29,7 @@ And now we will see:
 * [**executing stringified source code**](#Executing-stringified-source-code)
 * [**retrieving classes of runtime class paths or of other paths through the ClassHunter**](#Retrieving-classes-of-runtime-class-paths-or-of-other-paths-through-the-ClassHunter)
 * [**finding where a class is loaded from**](#Finding-where-a-class-is-loaded-from)
+* [**performing tasks in parallel with different priorities**](#Performing-tasks-in-parallel-with-different-priorities)
 * [**reaching a resource of the file system**](#Reaching-a-resource-of-the-file-system)
 * [**resolving, collecting or retrieving paths**](#Resolving-collecting-or-retrieving-paths)
 * [**retrieving placeholdered items from map and properties file**](#Retrieving-placeholdered-items-from-map-and-properties-file)
@@ -34,7 +40,7 @@ And now we will see:
 
 <br/>
 
-**For assistance you can [subscribe](https://www.burningwave.org/registration/) to the [forum](https://www.burningwave.org/forum/) and then ask in the topic ["How to do?"](https://www.burningwave.org/forum/forum/how-to/) or you can ask on [Stack Overflow](https://stackoverflow.com/questions/tagged/burningwave)**.
+**For assistance you can [subscribe](https://www.burningwave.org/registration/) to the [forum](https://www.burningwave.org/forum/) and then ask in the topic ["How to do?"](https://www.burningwave.org/forum/forum/how-to/) or you can ask on [Stack Overflow](https://stackoverflow.com/search?q=burningwave)**.
 
 <br/>
 
@@ -45,7 +51,7 @@ To include Burningwave Core library in your projects simply use with **Apache Ma
 <dependency>
     <groupId>org.burningwave</groupId>
     <artifactId>core</artifactId>
-    <version>7.20.0</version>
+    <version>8.21.2</version>
 </dependency>
 ```
 
@@ -53,7 +59,15 @@ To include Burningwave Core library in your projects simply use with **Apache Ma
 
 # Generating classes at runtime and invoking their methods with and without the use of reflection
 
-For this purpose is necessary the use of **ClassFactory** component and of the **sources generating components**. Once the sources have been set in **UnitSourceGenerator** objects, they must be passed to **loadOrBuildAndDefine** method of ClassFactory with the ClassLoader where you want to define new generated classes. This method performs the following operations: tries to load all the classes present in the UnitSourceGenerator through the class loader, if at least one of these is not found it proceeds to compiling all the UnitSourceGenerators and uploading their classes on class loader: in this case, keep in mind that if a class with the same name was previously loaded by the class loader, the compiled class will not be uploaded. Once the classes have been compiled and loaded, it is possible to invoke their methods in severals ways as shown at the end of the example below. **For more examples you can go [here](https://github.com/burningwave/core/tree/master/src/test/java/org/burningwave/core/examples/classfactory) where you can also find an [example about the generation of classes by using libraries located outside the runtime class paths](https://github.com/burningwave/core/blob/master/src/test/java/org/burningwave/core/examples/classfactory/ExternalClassRuntimeExtender.java)**.
+For this purpose is necessary the use of **ClassFactory** component and of the **sources generating components**. Once the sources have been set in **UnitSourceGenerator** objects, they must be passed to **`loadOrBuildAndDefine`** method of ClassFactory with the ClassLoader where you want to define new generated classes. This method performs the following operations: tries to load all the classes present in the UnitSourceGenerator through the class loader, if at least one of these is not found it proceeds to compiling all the UnitSourceGenerators and uploading their classes on class loader: **in this case, keep in mind that if a class with the same name was previously loaded by the class loader, the compiled class will not be uploaded**. **If you need more information you can**:
+* see a [**complete example about source code generators**](https://github.com/burningwave/core/blob/master/src/test/java/org/burningwave/core/UnitSourceGeneratorTest.java#L153)
+* read this [**guide**](https://www.burningwave.org/forum/topic/how-can-i-use-classes-outside-the-runtime-class-path-in-my-generated-sources/) where you also can find a link to an [**example about generating classes by using libraries located outside the runtime class paths**](https://github.com/burningwave/core/blob/master/src/test/java/org/burningwave/core/examples/classfactory/ExternalClassRuntimeExtender.java)
+* go [**here**](https://github.com/burningwave/core/tree/master/src/test/java/org/burningwave/core/examples/classfactory) for more examples
+* ask for assistance at the [**official forum**](https://www.burningwave.org/forum/) (topic [**"How to do?"**](https://www.burningwave.org/forum/forum/how-to/))
+* [**ask Stack Overflow for assistance**](https://stackoverflow.com/search?q=burningwave)
+
+Once the classes have been compiled and loaded, it is possible to invoke their methods in severals ways as shown at the end of the example below.
+
 ```java
 package org.burningwave.core.examples.classfactory;
 
@@ -94,7 +108,7 @@ public class RuntimeClassExtender {
                 ).addParameter(VariableSourceGenerator.create(LocalDateTime.class, "localDateTime"))
                 .addModifier(Modifier.PUBLIC)
                 .addAnnotation(AnnotationSourceGenerator.create(Override.class))
-                .addBodyCodeRow("return Date.from(localDateTime.atZone(ZoneId.systemDefault()).toInstant());")
+                .addBodyCodeLine("return Date.from(localDateTime.atZone(ZoneId.systemDefault()).toInstant());")
                 .useType(ZoneId.class)
             ).addConcretizedType(
                 MyInterface.class
@@ -110,9 +124,10 @@ public class RuntimeClassExtender {
         //burningwave.properties file (see "Overview and configuration").
         //If you need to upload the class to another class loader use
         //loadOrBuildAndDefine(LoadOrBuildAndDefineConfig) method
-        Class<?> generatedClass = classFactory.loadOrBuildAndDefine(
+        ClassFactory.ClassRetriever classRetriever = classFactory.loadOrBuildAndDefine(
             unitSG
-        ).get(
+        );
+        Class<?> generatedClass = classRetriever.get(
             "packagename.MyExtendedClass"
         );
         ToBeExtended generatedClassObject =
@@ -131,6 +146,7 @@ public class RuntimeClassExtender {
         System.out.println(
             ((Date)virtualObject.invokeDirect("convert", LocalDateTime.now())).toString()
         );
+        classRetriever.close();
     }   
 
     public static class ToBeExtended {
@@ -164,7 +180,7 @@ It is possible to execute stringified source code by using the **CodeExecutor** 
 <br/>
 
 ## Executing code with BodySourceGenerator
-For first way we must create a **ExecuteConfig** by using the within static method **forBodySourceGenerator** to which must be passed the **BodySourceGenerator** that contains the source code with the parameters used within: after that we must pass the created configuration to the **execute** method of CodeExecutor as shown below:
+For first way we must create a **ExecuteConfig** by using the within static method **`forBodySourceGenerator`** to which must be passed the **BodySourceGenerator** that contains the source code with the parameters used within: after that we must pass the created configuration to the **`execute`** method of CodeExecutor as shown below:
 ```java
 package org.burningwave.core.examples.codeexecutor;
 
@@ -183,13 +199,13 @@ public class SourceCodeExecutor {
         return componentSupplier.getCodeExecutor().execute(
             ExecuteConfig.forBodySourceGenerator(
                 BodySourceGenerator.createSimple().useType(ArrayList.class, List.class)
-                .addCodeRow("System.out.println(\"number to add: \" + parameter[0]);")
-                .addCodeRow("List<Integer> numbers = new ArrayList<>();")
-                .addCodeRow("numbers.add((Integer)parameter[0]);")
-                .addCodeRow("System.out.println(\"number list size: \" + numbers.size());")
-                .addCodeRow("System.out.println(\"number in the list: \" + numbers.get(0));")
-                .addCodeRow("Integer inputNumber = (Integer)parameter[0];")
-                .addCodeRow("return (T)new Integer(inputNumber + (Integer)parameter[1]);")
+                .addCodeLine("System.out.println(\"number to add: \" + parameter[0]);")
+                .addCodeLine("List<Integer> numbers = new ArrayList<>();")
+                .addCodeLine("numbers.add((Integer)parameter[0]);")
+                .addCodeLine("System.out.println(\"number list size: \" + numbers.size());")
+                .addCodeLine("System.out.println(\"number in the list: \" + numbers.get(0));")
+                .addCodeLine("Integer inputNumber = (Integer)parameter[0];")
+                .addCodeLine("return (T)new Integer(inputNumber + (Integer)parameter[1]);")
             ).withParameter(Integer.valueOf(5), Integer.valueOf(3))
         );
         
@@ -318,14 +334,51 @@ public class SourceCodeExecutor {
 <br/>
 
 # Retrieving classes of runtime class paths or of other paths through the ClassHunter
-The compononents of the class paths scanning engine are: **ByteCodeHunter**, **ClassHunter** and the **ClassPathHunter**. Now we are going to use the ClassHunter to search for all classes that have package name that matches a regex. So in this example we're looking for all classes whose package name contains "springframework" string in the runtime class paths
+The components of the class paths scanning engine are: **ByteCodeHunter**, [**ClassHunter**](https://github.com/burningwave/core/wiki/In-depth-look-to-ClassHunter-and-configuration-guide) and the **ClassPathHunter**. Now we are going to use the ClassHunter to search for all classes that have package name that matches a regex. So in this example we're looking for all classes whose package name contains "springframework" string in the runtime class paths:
+
 ```java
 import java.util.Collection;
 
 import org.burningwave.core.assembler.ComponentContainer;
 import org.burningwave.core.assembler.ComponentSupplier;
 import org.burningwave.core.classes.ClassCriteria;
+import org.burningwave.core.classes.ClassHunter;
+import org.burningwave.core.classes.ClassHunter.SearchResult;
+import org.burningwave.core.classes.SearchConfig;
+    
+public class Finder {
+    
+    public Collection<Class<?>> simplifiedFind() {
+        ComponentSupplier componentSupplier = ComponentContainer.getInstance();
+        ClassHunter classHunter = componentSupplier.getClassHunter();
+        
+        //With this the search will be executed on default configured paths that are the 
+        //runtime class paths plus, on java 9 and later, the jmods folder of the Java home.
+        //The default configured paths are indicated in the 'paths.hunters.default-search-config.paths'
+        //property of burningwave.properties file
+        //(see https://github.com/burningwave/core/wiki/In-depth-look-to-ClassHunter-and-configuration-guide)
+        try (SearchResult searchResult = classHunter.loadInCache(SearchConfig.byCriteria(
+            ClassCriteria.create().allThoseThatMatch((cls) -> {
+                return cls.getPackage().getName().matches(".*springframework.*");
+            })
+        )).find()
+        ) {
+            return searchResult.getClasses();
+        }
+    }
+    
+}
+```
+
+It is also possible to expressly indicate the paths on which to search:
+
+```java
+import java.util.Collection;
+
+import org.burningwave.core.assembler.ComponentContainer;
+import org.burningwave.core.assembler.ComponentSupplier;
 import org.burningwave.core.classes.CacheableSearchConfig;
+import org.burningwave.core.classes.ClassCriteria;
 import org.burningwave.core.classes.ClassHunter;
 import org.burningwave.core.classes.ClassHunter.SearchResult;
 import org.burningwave.core.classes.SearchConfig;
@@ -333,7 +386,7 @@ import org.burningwave.core.io.PathHelper;
     
 public class Finder {
     
-    public Collection<Class<?>> find() {
+   public Collection<Class<?>> find() {
         ComponentSupplier componentSupplier = ComponentContainer.getInstance();
         PathHelper pathHelper = componentSupplier.getPathHelper();
         ClassHunter classHunter = componentSupplier.getClassHunter();
@@ -343,13 +396,15 @@ public class Finder {
             //both folders, zip, jar, ear and war will be recursively scanned.
             //For example you can add: "C:\\Users\\user\\.m2", or a path of
             //an ear file that contains nested war with nested jar files
-            //With the row below the search will be executed on runtime Classpaths
-            pathHelper.getMainClassPaths()
-            //If you want to scan only one jar or some certain jars you can use, for example,
-            //this commented line of code instead "pathHelper.getMainClassPaths()":
+            //With the rows below the search will be executed on runtime class paths and
+            //on java 9 and later also on .jmod files contained in jmods folder of the Java home
+            //(see https://github.com/burningwave/core/wiki/In-depth-look-to-ClassHunter-and-configuration-guide)
+            pathHelper.getAllMainClassPaths(),
+            pathHelper.getPaths(PathHelper.Configuration.Key.MAIN_CLASS_REPOSITORIES)
+            //If you want to scan only one jar you can replace the two line of code above with:
             //pathHelper.getPaths(path -> path.contains("spring-core-4.3.4.RELEASE.jar"))
         ).by(
-            ClassCriteria.create().allThat((cls) -> {
+            ClassCriteria.create().allThoseThatMatch((cls) -> {
                 return cls.getPackage().getName().matches(".*springframework.*");
             })
         );
@@ -361,11 +416,11 @@ public class Finder {
         //as input. It is possible to clear the cache individually for every hunter (ClassHunter, 
         //ByteCodeHunter and ClassPathHunter) with clearCache method but to avoid inconsistencies 
         //it is recommended to perform this cleaning using the clearHuntersCache method of the ComponentSupplier.
-        //To perform searches that do not use the cache you must intantiate the search configuration with 
+        //To perform searches that do not use the cache you must instantiate the search configuration with 
         //SearchConfig.withoutUsingCache() method
-        SearchResult searchResult = classHunter.loadInCache(searchConfig).find();
-        
-        return searchResult.getClasses();
+        try(SearchResult searchResult = classHunter.loadInCache(searchConfig).find()) {
+            return searchResult.getClasses();
+        }
     }
     
 }
@@ -403,15 +458,75 @@ public class Finder {
             //With the row below the search will be executed on runtime Classpaths
             pathHelper.getMainClassPaths()
         ).by(
-            ClassCriteria.create().allThat(cls ->
+            ClassCriteria.create().allThoseThatMatch(cls ->
                 cls.getName().equals("Finder")      
             )
         );        
 
-        SearchResult searchResult = classPathHunter.loadInCache(searchConfig).find();
-        return searchResult.getClassPaths();
+        try (SearchResult searchResult = classPathHunter.loadInCache(searchConfig).find()) {
+            return searchResult.getClassPaths();
+        }
     }
 
+}
+```
+
+<br>
+
+# Performing tasks in parallel with different priorities
+By using the **BackgroundExecutor** component you can launch different Runnables or Suppliers in a parallel way and wait for them starting or finishing. For obtaining threads the BackgroundExecutor uses the **ThreadSupplier** component which can be customized in the [burningwave.static.properties](#configuration) file. The ThreadSupplier provides a fixed number of reusable threads indicated by the **`thread-supplier.max-poolable-threads-count`** property and, if these threads have already been assigned, new non-reusable threads will be created whose quantity maximum is indicated by the **`thread-supplier.max-detached-threads-count`** property. Once this limit is reached if the request for a new thread exceeds the waiting time indicated by the **`thread-supplier.poolable-thread-request-timeout`** property, the ThreadSupplier will proceed to increase the limit indicated by the 'thread-supplier.max-detached-threads-count' property for the quantity indicated by the `thread-supplier.max-detached-threads-count.increasing-step` property. Resetting the 'thread-supplier.max-detached-threads-count' property to its initial value, will occur gradually only when there have been no more waits on thread requests for an amount of time indicated by the **`thread-supplier.max-detached-threads-count.elapsed-time-threshold-from-last-increase-for-gradual-decreasing-to-initial-value`** property.
+```java
+import static org.burningwave.core.assembler.StaticComponentContainer.BackgroundExecutor;
+
+import org.burningwave.core.ManagedLogger;
+import org.burningwave.core.concurrent.QueuedTasksExecutor.ProducerTask;
+import org.burningwave.core.concurrent.QueuedTasksExecutor.Task;
+
+
+public class TaskLauncher implements ManagedLogger {
+    
+    public void launch() {
+        
+        ProducerTask<Long> taskOne = BackgroundExecutor.createTask(() -> {
+            Long startTime = System.currentTimeMillis();
+            logInfo("task one started");
+            synchronized (this) {                
+                wait(5000);
+            }
+            Task internalTask = BackgroundExecutor.createTask(() -> {
+                logInfo("internal task started");    
+                synchronized (this) {                
+                    wait(5000);
+                }
+                logInfo("internal task finished");    
+            }, Thread.MAX_PRIORITY).submit();
+            internalTask.waitForFinish();
+            logInfo("task one finished");
+            return startTime;
+        }, Thread.MAX_PRIORITY).submit();
+
+        Task taskTwo = BackgroundExecutor.createTask(() -> {
+            logInfo("task two started and wait for task one finishing");
+            taskOne.waitForFinish();
+            logInfo("task two finished");    
+        }, Thread.NORM_PRIORITY).submit();
+
+        ProducerTask<Long> taskThree = BackgroundExecutor.createTask(() -> {
+            logInfo("task three started and wait for task two finishing");
+            taskTwo.waitForFinish();
+            logInfo("task three finished");
+            return System.currentTimeMillis();
+        }, Thread.MIN_PRIORITY).submit();
+
+        taskThree.waitForFinish();
+
+        logInfo("Elapsed time: {}ms", taskThree.join() - taskOne.join());
+    }
+    
+    public static void main(String[] args) {
+        new TaskLauncher().launch();
+    }
+    
 }
 ```
 
@@ -495,12 +610,12 @@ public class ResourceReacher {
 # Resolving, collecting or retrieving paths
 
 Through **PathHelper** we can resolve or collect paths or retrieving resources even through supported archive files (zip, jar, jmod, ear and war).
-So we can create a path collection by adding an entry in **[burningwave.properties](#configuration-1)** file that **starts with 'paths.' prefix (this is a fundamental requirement to allow PathHelper to load the paths)**, e.g.:
+So we can create a path collection by adding an entry in **[burningwave.properties](#configuration-1)** file that **starts with `paths.` prefix (this is a fundamental requirement to allow PathHelper to load the paths)**, e.g.:
 ```properties
 paths.my-collection=c:/some folder;C:/some folder 2/ some folder 3;
 paths.my-collection-2=c:/some folder 4;C:/some folder 6;
 ```
-These paths could be retrieved through **PathHelper.getPaths** method and we can find a resource in all configured paths plus the runtime class paths (that is automatically loaded under the entry named **'paths.main-class-paths'**) by using **PathHelper.getResource** method, e.g.:
+These paths could be retrieved through **`PathHelper.getPaths`** method and we can find a resource in all configured paths plus the runtime class paths (that is automatically loaded under the entry named **`paths.main-class-paths`**) by using **PathHelper.getResource** method, e.g.:
 ```java
 ComponentSupplier componentSupplier = ComponentContainer.getInstance();
 PathHelper pathHelper = componentSupplier.getPathHelper();
@@ -594,10 +709,15 @@ For fields handling we are going to use **Fields** component:
 ```java
 import static org.burningwave.core.assembler.StaticComponentContainer.Fields;
 
+import java.lang.reflect.Field;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
+import org.burningwave.core.classes.FieldCriteria;
 
+
+@SuppressWarnings("unused")
 public class FieldsHandler {
     
     public static void execute() {
@@ -607,41 +727,96 @@ public class FieldsHandler {
         //Access by Reflection
         loadedClasses = Fields.get(classLoader, "classes");
         
-        //Getting all field values of an object through memory address access
-        Map<String, Object> values = Fields.getAllDirect(classLoader);
-        //Getting all field values of an object through reflection access
+        //Get all field values of an object through memory address access
+        Map<Field, ?> values = Fields.getAllDirect(classLoader);
+        //Get all field values of an object through reflection access
         values = Fields.getAll(classLoader);
+        
         Object obj = new Object() {
-            List<Object> objectValue;
+            volatile List<Object> objectValue;
+            volatile int intValue;
+            volatile long longValue;
+            volatile float floatValue;
+            volatile double doubleValue;
+            volatile boolean booleanValue;
+            volatile byte byteValue;
+            volatile char charValue;
         };
-        List<Object> objectValue = new ArrayList<>();
-        //Setting field value through memory address access
-        Fields.setDirect(obj, "objectValue", objectValue);
-        List<Object> objectValue2Var = Fields.getDirect(obj, "objectValue");
+        
+        //Get all filtered field values of an object through memory address access
+        Fields.getAllDirect(
+            FieldCriteria.forEntireClassHierarchy().allThoseThatMatch(field -> {
+                return field.getType().isPrimitive();
+            }), 
+            obj
+        ).values();
     }
     
     public static void main(String[] args) {
         execute();
-    } 
+    }
+    
 }
 ```
 For methods handling we are going to use **Methods** component:
 ```java
+import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
 import static org.burningwave.core.assembler.StaticComponentContainer.Methods;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.security.ProtectionDomain;
+import java.util.Collection;
+
+import org.burningwave.core.classes.MethodCriteria;
+
+
+@SuppressWarnings("unused")
 public class MethodsHandler {
     
     public static void execute() {
         //Invoking method by using reflection
         Methods.invoke(System.out, "println", "Hello World");
+
+        //Invoking static method by using MethodHandle
+        Integer number = Methods.invokeStaticDirect(Integer.class, "valueOf", 1);
         
         //Invoking method by using MethodHandle
-        Integer number = Methods.invokeDirect(Integer.class, "valueOf", 1);
+        Methods.invokeDirect(System.out, "println", number);
+        
+        //Filtering and obtaining a MethodHandle reference
+        MethodHandle methodHandle = Methods.findFirstDirectHandle(
+            MethodCriteria.byScanUpTo((cls) ->
+            //We only analyze the ClassLoader class and not all of its hierarchy (default behavior)
+                cls.getName().equals(ClassLoader.class.getName())
+            ).name(
+                "defineClass"::equals
+            ).and().parameterTypes(params -> 
+                params.length == 3
+            ).and().parameterTypesAreAssignableFrom(
+                String.class, ByteBuffer.class, ProtectionDomain.class
+            ).and().returnType((cls) -> 
+                cls.getName().equals(Class.class.getName())
+            ), ClassLoader.class
+        );        
+        
+        //Filtering and obtaining all methods of ClassLoader class that have at least
+        //one input parameter of Class type
+        Collection<Method> methods = Methods.findAll(
+            MethodCriteria.byScanUpTo((cls) ->
+            	//We only analyze the ClassLoader class and not all of its hierarchy (default behavior)
+                cls.getName().equals(ClassLoader.class.getName())
+            ).parameter((params, idx) -> {
+                return Classes.isAssignableFrom(params[idx].getType(), Class.class);
+            }), ClassLoader.class
+        );
     }
     
     public static void main(String[] args) {
         execute();
     }
+    
 }
 ```
 
@@ -809,9 +984,10 @@ More than one dynamic container can be created, while only one static container 
 ## Static component container
 It is represented by the **org.burningwave.core.assembler.StaticComponentContainer** class that provides the following fields for each component supplied:
 ```java
+public static final org.burningwave.core.concurrent.QueuedTasksExecutor.Group BackgroundExecutor;
 public static final org.burningwave.core.classes.PropertyAccessor ByFieldOrByMethodPropertyAccessor;
 public static final org.burningwave.core.classes.PropertyAccessor ByMethodOrByFieldPropertyAccessor;
-public static final org.burningwave.core.jvm.LowLevelObjectsHandler.ByteBufferDelegate ByteBufferDelegate;
+public static final org.burningwave.core.jvm.LowLevelObjectsHandler.ByteBufferHandler ByteBufferHandler;
 public static final org.burningwave.core.Cache Cache;
 public static final org.burningwave.core.classes.Classes Classes;
 public static final org.burningwave.core.classes.Classes.Loaders ClassLoaders;
@@ -825,11 +1001,15 @@ public static final org.burningwave.core.jvm.LowLevelObjectsHandler LowLevelObje
 public static final org.burningwave.core.ManagedLogger.Repository ManagedLoggersRepository;
 public static final org.burningwave.core.classes.Members Members;
 public static final org.burningwave.core.classes.Methods Methods;
+public static final org.burningwave.core.Objects Objects;
 public static final org.burningwave.core.Strings.Paths Paths;
 public static final org.burningwave.core.io.Resources Resources;
-public static final org.burningwave.core.io.Streams Streams;
 public static final org.burningwave.core.classes.SourceCodeHandler SourceCodeHandler;
+public static final org.burningwave.core.io.Streams Streams;
 public static final org.burningwave.core.Strings Strings;
+public static final org.burningwave.core.concurrent.Synchronizer Synchronizer;
+public static final org.burningwave.core.concurrent.Thread.Holder ThreadHolder;
+public static final org.burningwave.core.concurrent.Thread.Supplier ThreadSupplier;
 public static final org.burningwave.core.Throwables Throwables;
 ```
 
@@ -837,13 +1017,17 @@ public static final org.burningwave.core.Throwables Throwables;
 ```java
 package org.burningwave.core.examples.staticcomponents;
 
-import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
+import static org.burningwave.core.assembler.StaticComponentContainer.ClassLoaders;
 import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
 
 public class UseOfStaticComponentsExample {
     
     public void yourMethod(){
-        ManagedLoggersRepository.logInfo(UseOfStaticComponentsExample.class, Classes.getId(this));
+        ManagedLoggersRepository.logInfo(
+            () -> UseOfStaticComponentsExample.class.getName(),
+            "Master class loader is {}",
+            ClassLoaders.getMaster(Thread.currentThread().getContextClassLoader())
+        );
     }
 
 }
@@ -851,33 +1035,64 @@ public class UseOfStaticComponentsExample {
 ### Configuration
 The configuration of this type of container is done via **burningwave.static.properties** file or via **burningwave.static.default.properties** file: the library searches for the first file and if it does not find it, then it searches for the second file and if neither this one is found then the library sets the default configuration programmatically. **The default configuration loaded programmatically if no configuration file is found is the following**:
 ```properties
+background-executor.all-tasks-monitoring.enabled=\
+	true
+background-executor.all-tasks-monitoring.interval=\
+	30000
+background-executor.all-tasks-monitoring.logger.enabled=\
+	false
+background-executor.all-tasks-monitoring.minimum-elapsed-time-to-consider-a-task-as-probable-dead-locked=\
+	300000
+#Other possible values are: 'mark as probable dead locked', 'abort' or both comma separated
+background-executor.all-tasks-monitoring.probable-dead-locked-tasks-handling.policy=\
+	log only
+background-executor.task-creation-tracking.enabled=\
+	${background-executor.all-tasks-monitoring.enabled}
+group-name-for-named-elements=\
+	Burningwave
+hide-banner-on-init=\
+	false
+iterable-object-helper.default-values-separator=\
+	;
+iterable-object-helper.parallel-iteration.applicability.max-runtime-threads-count-threshold=\
+	autodetect
 #With this value the library will search if org.slf4j.Logger is present and, in this case,
 #the SLF4JManagedLoggerRepository will be instantiated, otherwise the SimpleManagedLoggerRepository will be instantiated
-managed-logger.repository=autodetect
+managed-logger.repository=\
+	autodetect
 #to increase performance set it to false
-managed-logger.repository.enabled=true
-static-component-container.clear-temporary-folder-on-init=true
-static-component-container.hide-banner-on-init=false
-streams.default-buffer-size=1024
-streams.default-byte-buffer-allocation-mode=ByteBuffer::allocateDirect
+managed-logger.repository.enabled=\
+	true
+managed-logger.repository.logging.warn.disabled-for=\
+	org.burningwave.core.classes.ClassHunter$SearchContext;\
+	org.burningwave.core.classes.ClassPathHunter$SearchContext;\
+	org.burningwave.core.jvm.LowLevelObjectsHandler;\
+	org.burningwave.core.classes.MemoryClassLoader;\
+	org.burningwave.core.classes.PathScannerClassLoader;\
+	org.burningwave.core.classes.SearchContext;
+streams.default-buffer-size=\
+	1024
+streams.default-byte-buffer-allocation-mode=\
+	ByteBuffer::allocateDirect
+synchronizer.all-threads-monitoring.enabled=\
+	false
+synchronizer.all-threads-monitoring.interval=\
+	90000
+thread-supplier.default-daemon-flag-value=\
+	true
+thread-supplier.max-detached-threads-count=\
+	autodetect
+thread-supplier.max-detached-threads-count.elapsed-time-threshold-from-last-increase-for-gradual-decreasing-to-initial-value=\
+	30000
+thread-supplier.max-detached-threads-count.increasing-step=\
+	8
+thread-supplier.max-poolable-threads-count=\
+	autodetect
+thread-supplier.poolable-thread-request-timeout=\
+	6000
 ```
 **If in your custom burningwave.static.properties or burningwave.static.default.properties file one of this default properties is not found, the relative default value here in the box above is assumed**.
-Here an example of a **burningwave.static.properties** file with all configurable properties:
-```properties
-#other possible values are: autodetect, org.burningwave.core.SimpleManagedLoggerRepository
-managed-logger.repository=org.burningwave.core.SLF4JManagedLoggerRepository
-#to increase performance set it to false
-managed-logger.repository.enabled=true
-managed-logger.repository.logging.debug.disabled-for=\
-    org.burningwave.core.io.FileSystemItem;\
-    org.burningwave.core.classes.PathMemoryClassLoader;\
-    org.burningwave.core.classes.MemoryClassLoader;
-streams.default-buffer-size=0.5Kb
-#other possible value is ByteBuffer::allocate
-streams.default-byte-buffer-allocation-mode=ByteBuffer::allocateDirect
-static-component-container.clear-temporary-folder-on-init=true
-static-component-container.hide-banner-on-init=false
-```
+[Here an example of a **burningwave.static.properties** file.](https://github.com/burningwave/core/blob/master/src/test/resources/burningwave.static.properties#L1)
 <br/>
 
 ## Dynamic component container
@@ -886,6 +1101,7 @@ It is represented by the **org.burningwave.core.assembler.ComponentContainer** c
 public ByteCodeHunter getByteCodeHunter();
 public ClassFactory getClassFactory();
 public ClassHunter getClassHunter();
+public ClassPathHunter getClassPathHelper();
 public ClassPathHunter getClassPathHunter();
 public CodeExecutor getCodeExecutor();
 public FunctionalInterfaceFactory getFunctionalInterfaceFactory();
@@ -902,7 +1118,7 @@ import org.burningwave.core.assembler.ComponentSupplier;
 import org.burningwave.core.classes.ClassFactory;
 import org.burningwave.core.classes.ClassHunter;
 import org.burningwave.core.io.PathHelper;
-import org.burningwave.core.iterable.Properties;
+import java.util.Properties;
 
 public class RetrievingDynamicComponentContainerAndComponents {
 
@@ -929,56 +1145,97 @@ public class RetrievingDynamicComponentContainerAndComponents {
 ```
 ### Configuration
 The configuration of this type of container can be done via Properties file or programmatically via a Properties object.
-If you use the singleton instance obtained via ComponentContainer.getInstance() method, you must create a **burningwave.properties** file and put it on base path of your classpath project.
+If you use the singleton instance obtained via **`ComponentContainer.getInstance()`** method, you must create a **burningwave.properties** file and put it on base path of your classpath project.
 **The default configuration automatically loaded if no configuration file is found is the following**:
 ```properties
+byte-code-hunter.default-path-scanner-class-loader=\
+	(Supplier<PathScannerClassLoader>)() -> ((ComponentSupplier)parameter[0]).getPathScannerClassLoader()
+#This variable is empty by default and can be valorized by developer and it is
+#included by 'byte-code-hunter.default-path-scanner-class-loader.supplier.imports' property
+byte-code-hunter.default-path-scanner-class-loader.supplier.additional-imports=
+byte-code-hunter.default-path-scanner-class-loader.supplier.imports=\
+	${code-executor.common.imports};\
+	${byte-code-hunter.default-path-scanner-class-loader.supplier.additional-imports};\
+	org.burningwave.core.classes.PathScannerClassLoader;
+byte-code-hunter.default-path-scanner-class-loader.supplier.name=\
+	org.burningwave.core.classes.DefaultPathScannerClassLoaderRetrieverForByteCodeHunter
+byte-code-hunter.new-isolated-path-scanner-class-loader.search-config.check-file-option=\
+	${hunters.default-search-config.check-file-option}
 class-factory.byte-code-hunter.search-config.check-file-option=\
-    ${hunters.default-search-config.check-file-option}
+	${hunters.default-search-config.check-file-option}
 #default classloader used by the ClassFactory to load generated classes
 class-factory.default-class-loader=\
-    (Supplier<ClassLoader>)() -> ((ComponentSupplier)parameter[0]).getPathScannerClassLoader()
+	(Supplier<ClassLoader>)() -> ((ComponentSupplier)parameter[0]).getPathScannerClassLoader()
 #This variable is empty by default and can be valorized by developer and it is
-#included by 'class-factory.default-class-loader.imports' property
-class-factory.default-class-loader.additional-imports=
-class-factory.default-class-loader.imports=\  
-    ${class-factory.default-class-loader.additional-imports};\
-    org.burningwave.core.assembler.ComponentSupplier;\
-    java.util.function.Function;\
-    org.burningwave.core.io.FileSystemItem;\
-    org.burningwave.core.classes.PathScannerClassLoader;\
-    java.util.function.Supplier;
-class-factory.default-class-loader.name=\
-    org.burningwave.core.classes.DefaultClassLoaderRetrieverForClassFactory
+#included by 'class-factory.default-class-loader.supplier.imports' property
+class-factory.default-class-loader.supplier.additional-imports=
+class-factory.default-class-loader.supplier.imports=\
+	${code-executor.common.imports};\
+	${class-factory.default-class-loader.supplier.additional-imports};\
+	org.burningwave.core.classes.PathScannerClassLoader;
+class-factory.default-class-loader.supplier.name=\
+	org.burningwave.core.classes.DefaultClassLoaderRetrieverForClassFactory
 class-hunter.default-path-scanner-class-loader=\
-    (Supplier<PathScannerClassLoader>)() -> ((ComponentSupplier)parameter[0]).getPathScannerClassLoader()
+	(Supplier<PathScannerClassLoader>)() -> ((ComponentSupplier)parameter[0]).getPathScannerClassLoader()
 #This variable is empty by default and can be valorized by developer and it is
-#included by 'class-hunter.default-path-scanner-class-loader.imports' property
-class-hunter.default-path-scanner-class-loader.additional-imports=
-class-hunter.default-path-scanner-class-loader.imports=\
-    ${class-hunter.default-path-scanner-class-loader.additional-imports};\
-    org.burningwave.core.assembler.ComponentSupplier;\
-    org.burningwave.core.io.FileSystemItem;\
-    org.burningwave.core.classes.PathScannerClassLoader;\
-    java.util.function.Supplier;
-class-hunter.default-path-scanner-class-loader.name=\
-    org.burningwave.core.classes.DefaultPathScannerClassLoaderRetrieverForClassHunter
+#included by 'class-hunter.default-path-scanner-class-loader.supplier.imports' property
+class-hunter.default-path-scanner-class-loader.supplier.additional-imports=
+class-hunter.default-path-scanner-class-loader.supplier.imports=\
+	${code-executor.common.imports};\
+	${class-hunter.default-path-scanner-class-loader.supplier.additional-imports};\
+	org.burningwave.core.classes.PathScannerClassLoader;
+class-hunter.default-path-scanner-class-loader.supplier.name=\
+	org.burningwave.core.classes.DefaultPathScannerClassLoaderRetrieverForClassHunter
 class-hunter.new-isolated-path-scanner-class-loader.search-config.check-file-option=\
-    ${hunters.default-search-config.check-file-option}
+	${hunters.default-search-config.check-file-option}
+class-path-helper.class-path-hunter.search-config.check-file-option=\
+	${hunters.default-search-config.check-file-option}
+class-hunter.default-path-scanner-class-loader=\
+	(Supplier<PathScannerClassLoader>)() -> ((ComponentSupplier)parameter[0]).getPathScannerClassLoader()
+class-path-hunter.default-path-scanner-class-loader=\
+	(Supplier<PathScannerClassLoader>)() -> ((ComponentSupplier)parameter[0]).getPathScannerClassLoader()
+#This variable is empty by default and can be valorized by developer and it is
+#included by 'class-path-hunter.default-path-scanner-class-loader.supplier.imports' property
+class-path-hunter.default-path-scanner-class-loader.supplier.additional-imports=
+class-path-hunter.default-path-scanner-class-loader.supplier.imports=\
+	${code-executor.common.imports};\
+	${class-path-hunter.default-path-scanner-class-loader.supplier.additional-imports};\
+	org.burningwave.core.classes.PathScannerClassLoader;
+class-path-hunter.default-path-scanner-class-loader.supplier.name=\
+	org.burningwave.core.classes.DefaultPathScannerClassLoaderRetrieverForClassPathHunter
+class-path-hunter.new-isolated-path-scanner-class-loader.search-config.check-file-option=\
+	${hunters.default-search-config.check-file-option}
+#This variable is empty by default and can be valorized by developer and it is
+#included by 'code-executor.common.import' property
+code-executor.common.additional-imports=
+code-executor.common.imports=\
+	static org.burningwave.core.assembler.StaticComponentContainer.BackgroundExecutor;\
+	${code-executor.common.additional-imports};\
+	org.burningwave.core.assembler.ComponentSupplier;\
+	java.util.function.Function;\
+	org.burningwave.core.io.FileSystemItem;\
+	org.burningwave.core.io.PathHelper;\
+	org.burningwave.core.concurrent.QueuedTasksExecutor$ProducerTask;\
+	org.burningwave.core.concurrent.QueuedTasksExecutor$Task;\
+	java.util.function.Supplier;
+component-container.after-init.operations.imports=\
+	${code-executor.common.imports};\
+	${component-container.after-init.operations.additional-imports};\
+	org.burningwave.core.classes.SearchResult;
+component-container.after-init.operations.executor.name=\
+	org.burningwave.core.assembler.AfterInitOperations
 hunters.default-search-config.check-file-option=\
-    ${path-scanner-class-loader.search-config.check-file-option}
-hunters.path-loading-lock=forPath
-java-memory-compiler.class-path-hunter.search-config.check-file-option=\
-    ${hunters.default-search-config.check-file-option}
+	${path-scanner-class-loader.search-config.check-file-option}
 path-scanner-class-loader.parent=\
-    Thread.currentThread().getContextClassLoader()
-path-scanner-class-loader.parent.imports=\
-    ${path-scanner-class-loader.parent.additional-imports};\
-    org.burningwave.core.assembler.ComponentSupplier;\
-    org.burningwave.core.io.FileSystemItem;\
-    org.burningwave.core.classes.PathScannerClassLoader;\
-    java.util.function.Supplier;
-path-scanner-class-loader.parent.name=\
-    org.burningwave.core.classes.ParentClassLoaderRetrieverForPathScannerClassLoader
+	Thread.currentThread().getContextClassLoader()
+#This variable is empty by default and can be valorized by developer and it is
+#included by 'path-scanner-class-loader.parent.supplier.imports' property
+path-scanner-class-loader.parent.supplier.additional-imports=\
+path-scanner-class-loader.parent.supplier.imports=\
+	${code-executor.common.imports};\
+	${path-scanner-class-loader.parent.supplier.additional-imports};
+path-scanner-class-loader.parent.supplier.name=\
+	org.burningwave.core.classes.ParentClassLoaderRetrieverForPathScannerClassLoader
 #other possible values are: checkFileName, checkFileName|checkFileSignature, checkFileName&checkFileSignature
 path-scanner-class-loader.search-config.check-file-option=checkFileName
 #This variable is empty by default and can be valorized by developer and it is
@@ -988,104 +1245,59 @@ paths.class-factory.default-class-loader.additional-class-repositories=
 #must be taken if during the definition of the compiled classes
 #on classloader there will be classes not found
 paths.class-factory.default-class-loader.class-repositories=\
-    ${paths.java-memory-compiler.class-paths};\
-    ${paths.java-memory-compiler.class-repositories};
-    ${paths.class-factory.default-class-loader.additional-class-repositories}\
-paths.hunters.default-search-config.paths=${paths.main-class-paths};
+	${paths.java-memory-compiler.class-paths};\
+	${paths.java-memory-compiler.class-repositories};\
+	${paths.class-factory.default-class-loader.additional-class-repositories}
+paths.hunters.default-search-config.paths=\
+	${paths.main-class-paths};\
+	${paths.main-class-paths.extension};\
+	${paths.main-class-repositories};
 #This variable is empty by default and can be valorized by developer and it is
-#included by 'paths.paths.java-memory-compiler.class-paths' property
+#included by 'paths.java-memory-compiler.class-paths' property
 paths.java-memory-compiler.additional-class-paths=
+paths.java-memory-compiler.black-listed-class-paths=\
+	//${paths.main-class-paths}/..//children:.*?surefirebooter\d{0,}\.jar;
 #this variable indicates all the class paths used by the JavaMemoryCompiler
 #component for compiling
 paths.java-memory-compiler.class-paths=\
-    ${paths.main-class-paths};\
-    ${paths.main-class-paths.extension};\
-    ${paths.java-memory-compiler.additional-class-paths}
-#This variable is empty by default and can be valorized by developer. All
-#paths inserted here will analyze by JavaMemoryCompiler component before
-#compiling to search for all classes imported from sources 
-paths.java-memory-compiler.class-repositories=
+	${paths.main-class-paths};\
+	${paths.main-class-paths.extension};\
+	${paths.java-memory-compiler.additional-class-paths}
+#This variable is empty by default and can be valorized by developer. and it is
+#included by 'paths.java-memory-compiler.class-repositories' property
+paths.java-memory-compiler.additional-class-repositories=
+#All paths inserted here will be analyzed by JavaMemoryCompiler component in case 
+#of compilation failure to search for class paths of all classes imported by sources 
+paths.java-memory-compiler.class-repositories=\
+	${paths.main-class-repositories};\
+	${paths.java-memory-compiler.additional-class-repositories};
+paths.main-class-paths=\
+	${system.properties:java.class.path}
 paths.main-class-paths.extension=\
-    //${system.properties:java.home}/lib//children:.*?\.jar|.*?\.jmod;\
-    //${system.properties:java.home}/lib/ext//children:.*?\.jar|.*?\.jmod;\
-    //${system.properties:java.home}/jmods//children:.*?\.jar|.*?\.jmod;
+	//${system.properties:java.home}/lib//children:.*?\.jar;\
+	//${system.properties:java.home}/lib/ext//children:.*?\.jar;
+paths.main-class-repositories=\
+	//${system.properties:java.home}/jmods//children:.*?\.jmod;
 ```
 **If in your custom burningwave.properties file one of this default properties is not found, the relative default value here in the box above is assumed**.
 
-If you create a component container instance through method ComponentContainer.create(String relativeConfigFileName), you can specify the file name of your properties file and you can locate it everywhere in your classpath project but remember to use a relative path in this case, i.e.: if you name your file "custom-config-file.properties" and put it in package "org.burningwave" you must create the component container as follow: 
+If you create a component container instance through method **`ComponentContainer.create(String relativeConfigFileName)`**, you can specify the file name of your properties file and you can locate it everywhere in your classpath project but remember to use a relative path in this case, i.e.: if you name your file "custom-config-file.properties" and put it in package "org.burningwave" you must create the component container as follow: 
 ```java
 ComponentContainer.create("org/burningwave/custom-config-file.properties")
 ```
-Here an example of a **burningwave.properties** file with all configurable properties:
-```properties
-class-factory.byte-code-hunter.search-config.check-file-option=\
-    checkFileName&checkFileSignature
-class-factory.default-class-loader.parent=Thread.currentThread().getContextClassLoader()
-class-factory.default-class-loader=PathScannerClassLoader.create(\
-    ${class-factory.default-class-loader.parent},\
-    ((ComponentSupplier)parameter[0]).getPathHelper(),\
-    FileSystemItem.Criteria.forClassTypeFiles(\
-        FileSystemItem.CheckingOption.FOR_NAME\
-    )\
-)
-class-factory.default-class-loader.additional-imports=java.util.function.Consumer;
-class-factory.default-class-loader.imports=\
-    ${class-factory.default-class-loader.additional-imports};\
-    org.burningwave.core.assembler.ComponentSupplier;\
-    java.util.function.Function;\
-    org.burningwave.core.io.FileSystemItem;\
-    org.burningwave.core.classes.PathScannerClassLoader;\
-    java.util.function.Supplier;
-class-factory.default-class-loader.name=\
-    org.burningwave.core.classes.DefaultClassLoaderRetrieverForClassFactory
-class-hunter.default-path-scanner-class-loader=\
-    (Supplier<PathScannerClassLoader>)() -> ((ComponentSupplier)parameter[0]).getPathScannerClassLoader()
-class-hunter.default-path-scanner-class-loader.additional-imports=java.util.function.Consumer;
-class-hunter.default-path-scanner-class-loader.imports=\
-    ${class-hunter.default-path-scanner-class-loader.additional-imports};\
-    org.burningwave.core.assembler.ComponentSupplier;\
-    org.burningwave.core.io.FileSystemItem;\
-    org.burningwave.core.classes.PathScannerClassLoader;\
-    java.util.function.Supplier;
-class-hunter.default-path-scanner-class-loader.name=\
-    org.burningwave.core.classes.DefaultPathScannerClassLoaderRetrieverForClassHunter
-class-hunter.new-isolated-path-scanner-class-loader.search-config.check-file-option=\
-    ${hunters.default-search-config.check-file-option}
-hunters.default-search-config.check-file-option=\
-    ${path-scanner-class-loader.search-config.check-file-option}
-hunters.path-loading-lock=forPath
-java-memory-compiler.class-path-hunter.search-config.check-file-option=\
-    ${hunters.default-search-config.check-file-option}
-path-scanner-class-loader.parent=\
-    Thread.currentThread().getContextClassLoader()
-path-scanner-class-loader.parent.imports=\
-    ${path-scanner-class-loader.parent.additional-imports};\
-    org.burningwave.core.assembler.ComponentSupplier;\
-    org.burningwave.core.io.FileSystemItem;\
-    org.burningwave.core.classes.PathScannerClassLoader;\
-    java.util.function.Supplier;
-path-scanner-class-loader.parent.name=\
-    org.burningwave.core.classes.ParentClassLoaderRetrieverForPathScannerClassLoader
-path-scanner-class-loader.search-config.check-file-option=checkFileName
-paths.class-factory.default-class-loader.class-repositories=\
-    ${paths.java-memory-compiler.class-paths};\
-    ${paths.java-memory-compiler.class-repositories};\
-    ${paths.class-factory.default-class-loader.additional-class-repositories}
-paths.hunters.default-search-config.paths=${paths.main-class-paths};
-paths.java-memory-compiler.class-paths=\
-    ${paths.main-class-paths};\
-    ${paths.main-class-paths.extension};\
-    ${paths.java-memory-compiler.additional-class-paths}
-paths.main-class-paths.extension=\
-    //${system.properties:java.home}/lib//children:.*?\.jar|.*?\.jmod;\
-    //${system.properties:java.home}/lib/ext//children:.*?\.jar|.*?\.jmod;\
-    //${system.properties:java.home}/jmods//children:.*?\.jar|.*?\.jmod;
-paths.java-memory-compiler.additional-class-paths=C:/some paths 1;C:/some paths 2;
-paths.java-memory-compiler.class-repositories=C:/some paths 3;C:/some paths 4;
-paths.class-factory.default-class-loader.additional-class-repositories=C:/some paths 5;C:/some paths 6;
-```
+[Here an example of a **burningwave.properties** file.](https://github.com/burningwave/core/blob/master/src/test/resources/burningwave.properties#L1)
 
 ### Other examples of using some components:
+<details open>
+	<summary><b>BackgroundExecutor</b></summary>
+	<ul>
+		<li>
+			<a href="https://github.com/burningwave/core/wiki/Performing-tasks-in-parallel-with-different-priorities">
+			<b>USE CASE</b>: performing different tasks in parallel and with different priorities
+			</a>
+		</li>
+	</ul>
+</details>
 <details open>
 	<summary><b>ClassFactory</b></summary>
 	<ul>
@@ -1100,13 +1312,18 @@ paths.class-factory.default-class-loader.additional-class-repositories=C:/some p
 	<summary><b>ClassHunter</b></summary>
 	<ul>
 		<li>
+			<a href="https://github.com/burningwave/core/wiki/In-depth-look-to-ClassHunter-and-configuration-guide">
+			<b>In depth look to and configuration guide</b>
+			</a>
+		</li>
+		<li>
 			<a href="https://github.com/burningwave/core/wiki/How-to-retrieve-all-classes-of-the-classpath">
-			<b>USE CASE</b>: how to retrieve all classes of the classpath
+			<b>USE CASE</b>: retrieving  all classes of the classpath
 			</a>
 		</li>
 		<li>
 			<a href="https://github.com/burningwave/core/wiki/How-retrieve-all-classes-that-implement-one-or-more-interfaces">
-			<b>USE CASE</b>: how to retrieve all classes that implement one or more interfaces
+			<b>USE CASE</b>: retrieving all classes that implement one or more interfaces
 			</a>
 		</li>
 		<li>
@@ -1116,7 +1333,7 @@ paths.class-factory.default-class-loader.additional-class-repositories=C:/some p
 		</li>
 		<li>
 			<a href="https://github.com/burningwave/core/wiki/How-to-search-for-all-classes-that-have-package-name-that-matches-a-regex">
-			<b>USE CASE</b>: how to search for all classes that have package name that matches a regex
+			<b>USE CASE</b>: searching for all classes that have package name that matches a regex
 			</a>
 		</li>
 		<li>
@@ -1136,12 +1353,12 @@ paths.class-factory.default-class-loader.additional-class-repositories=C:/some p
 		</li>
 		<li>
 			<a href="https://github.com/burningwave/core/wiki/How-to-search-for-all-classes-with-a-constructor-that-takes-a-specific-type-as-first-parameter-and-with-at-least-2-methods-that-begin-for-a-given-string">
-			<b>USE CASE</b>: how to search for all classes with a constructor that takes a specific type as first parameter and with at least 2 methods that begin for a given string
+			<b>USE CASE</b>: searching for all classes with a constructor that takes a specific type as first parameter and with at least 2 methods that begin for a given string
 			</a>
 		</li>
 		<li>
 			<a href="https://github.com/burningwave/core/wiki/How-to-search-for-all-classes-with-methods-whose-name-begins-for-a-given-string-and-that-takes-a-specific-type-as-its-first-parameter">
-			<b>USE CASE</b>: how to search for all classes with methods whose name begins for a given string and that takes a specific type as its first parameter
+			<b>USE CASE</b>: searching for all classes with methods whose name begins for a given string and that takes a specific type as its first parameter
 			</a>
 		</li>
 		<li>
@@ -1202,11 +1419,11 @@ paths.class-factory.default-class-loader.additional-class-repositories=C:/some p
 	</ul>
 </details>
 <details open>
-	<summary><b>Methods</b></summary>
+	<summary><b>FunctionalInterfaceFactory</b></summary>
 	<ul>
 		<li>
-			<a href="https://github.com/burningwave/core/wiki/Handling-privates-and-all-other-methods-of-an-object">
-			<b>USE CASE</b>: handling privates and all other methods of an object
+			<a href="https://github.com/burningwave/core/wiki/How-to-bind-methods-or-constructors-to-functional-interfaces">
+			<b>USE CASE</b>: How to bind methods or constructors to functional interfaces
 			</a>
 		</li>
 	</ul>
@@ -1217,6 +1434,26 @@ paths.class-factory.default-class-loader.additional-class-repositories=C:/some p
 		<li>
 			<a href="https://github.com/burningwave/core/wiki/Retrieving-placeholdered-items-from-map-and-properties-file">
 			<b>USE CASE</b>: retrieving placeholdered items from map and properties file
+			</a>
+		</li>
+	</ul>
+</details>
+<details open>
+	<summary><b>JavaMemoryCompiler</b></summary>
+	<ul>
+		<li>
+			<a href="https://github.com/burningwave/core/wiki/How-to-compile-sources-at-runtime">
+			<b>USE CASE</b>: compiling sources at runtime
+			</a>
+		</li>
+	</ul>
+</details>
+<details open>
+	<summary><b>Methods</b></summary>
+	<ul>
+		<li>
+			<a href="https://github.com/burningwave/core/wiki/Handling-privates-and-all-other-methods-of-an-object">
+			<b>USE CASE</b>: handling privates and all other methods of an object
 			</a>
 		</li>
 	</ul>
@@ -1241,9 +1478,17 @@ paths.class-factory.default-class-loader.additional-class-repositories=C:/some p
 		</li>
 	</ul>
 </details>
+<details open>
+	<summary><b>UnitSourceGenerator</b></summary>
+	<ul>
+		<li>
+			<a href="https://github.com/burningwave/core/wiki/How-to-generate-sources-at-runtime">
+			<b>USE CASE</b>: generating sources at runtime
+			</a>
+		</li>
+	</ul>
+</details>
 
 ### [**Official site**](https://www.burningwave.org/)
 ### [**Help guide**](https://www.burningwave.org/forum/topic/help-guide/)
 ### [**Ask the Burningwave community for assistance**](https://www.burningwave.org/forum/forum/how-to/)
-[![HitCount](http://hits.dwyl.com/burningwave/all.svg)](http://hits.dwyl.com/burningwave/all)
-<a href="https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=EY4TMTW8SWDAC&item_name=Support+maintenance+and+improvement+of+Burningwave&currency_code=EUR&source=url" rel="nofollow"><img src="https://camo.githubusercontent.com/e14c85b542e06215f7e56c0763333ef1e9b9f9b7/68747470733a2f2f7777772e70617970616c6f626a656374732e636f6d2f656e5f55532f692f62746e2f62746e5f646f6e6174655f534d2e676966" alt="Donate" data-canonical-src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif" style="max-width:100%;"></a>

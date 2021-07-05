@@ -30,41 +30,51 @@ package org.burningwave.core.classes;
 
 import static org.burningwave.core.assembler.StaticComponentContainer.Cache;
 import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
+import static org.burningwave.core.assembler.StaticComponentContainer.Fields;
 import static org.burningwave.core.assembler.StaticComponentContainer.LowLevelObjectsHandler;
-import static org.burningwave.core.assembler.StaticComponentContainer.Members;
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
 import static org.burningwave.core.assembler.StaticComponentContainer.Methods;
+import static org.burningwave.core.assembler.StaticComponentContainer.Objects;
+import static org.burningwave.core.assembler.StaticComponentContainer.Paths;
 import static org.burningwave.core.assembler.StaticComponentContainer.Streams;
+import static org.burningwave.core.assembler.StaticComponentContainer.Strings;
+import static org.burningwave.core.assembler.StaticComponentContainer.Synchronizer;
 import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.lang.invoke.MethodHandle;
-import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.ByteBuffer;
 import java.security.ProtectionDomain;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
-import org.burningwave.core.Component;
+import org.burningwave.core.Closeable;
 import org.burningwave.core.assembler.StaticComponentContainer;
-import org.burningwave.core.function.ThrowingSupplier;
+import org.burningwave.core.function.Executor;
+import org.burningwave.core.io.FileSystemItem;
 
 @SuppressWarnings("unchecked")
-public class Classes implements Component, MembersRetriever {
+public class Classes implements MembersRetriever {
 	public static class Symbol{
 		public static class Tag {
 			static final byte UTF8 = 1;
@@ -94,27 +104,8 @@ public class Classes implements Component, MembersRetriever {
 		return new Classes();
 	}
 	
-	public <T> Class<T> deepRetrieveFrom(Object object) {
-		return object != null ? (Class<T>)object.getClass() : null;
-	}
-	
-	public Class<?>[] deepRetrieveFrom(Object... objects) {
-		Class<?>[] classes = null;
-		if (objects != null) {
-			classes = new Class[objects.length];
-			for (int i = 0; i < objects.length; i++) {
-				if (objects[i] != null) {
-					classes[i] = deepRetrieveFrom(objects[i]);
-				}
-			}
-		} else {
-			classes = new Class[]{null};
-		}
-		return classes;
-	}
-	
 	public <T> Class<T> retrieveFrom(Object object) {
-		return (Class<T>)(object != null ? object instanceof Class? object : object.getClass() : null);
+		return object != null ? (Class<T>)object.getClass() : null;
 	}
 	
 	public Class<?>[] retrieveFrom(Object... objects) {
@@ -186,6 +177,10 @@ public class Classes implements Component, MembersRetriever {
 			path = pckg.getName().replace(".", "/") + "/" + path + ".class";
 		}
 		return path;
+	}
+	
+	public String toPath(String className) {
+		return className.replace(".", "/");
 	}
 	
 	public String retrieveName(
@@ -328,10 +323,11 @@ public class Classes implements Component, MembersRetriever {
 			cls.getName().replace(".", "/") + ".class"
 		);
 		return Streams.toByteBuffer(
-			Objects.requireNonNull(inputStream, "Could not acquire bytecode for class " + cls.getName())
+			java.util.Objects.requireNonNull(inputStream, "Could not acquire bytecode for class " + cls.getName())
 		);
 	}
 	
+	@Override
 	public Field[] getDeclaredFields(Class<?> cls)  {
 		return Cache.classLoaderForFields.getOrUploadIfAbsent(
 			getClassLoader(cls), cls.getName().replace(".", "/"),
@@ -339,23 +335,21 @@ public class Classes implements Component, MembersRetriever {
 		);
 	}
 	
-	public Constructor<?>[] getDeclaredConstructors(Class<?> cls)  {
-		return Cache.classLoaderForConstructors.getOrUploadIfAbsent(
+	@Override
+	public <T> Constructor<T>[] getDeclaredConstructors(Class<T> cls)  {
+		return (Constructor<T>[]) Cache.classLoaderForConstructors.getOrUploadIfAbsent(
 			getClassLoader(cls), cls.getName().replace(".", "/"),
 			() -> LowLevelObjectsHandler.getDeclaredConstructors(cls)
 		);
 	}
 	
+	@Override
 	public Method[] getDeclaredMethods(Class<?> cls)  {
 		return Cache.classLoaderForMethods.getOrUploadIfAbsent(
 			getClassLoader(cls), cls.getName().replace(".", "/"),
 			() -> LowLevelObjectsHandler.getDeclaredMethods(cls)
 		);
 	}	
-
-	public void setAccessible(AccessibleObject object, boolean flag) {
-		LowLevelObjectsHandler.setAccessible(object, flag);
-	}
 	
 	public boolean isLoadedBy(Class<?> cls, ClassLoader classLoader) {
 		if (cls.getClassLoader() == classLoader) {
@@ -392,7 +386,7 @@ public class Classes implements Component, MembersRetriever {
 		return cls;
 	}
 	
-	public static class Loaders implements Component {
+	public static class Loaders implements Closeable {
 		protected Map<ClassLoader, Collection<Class<?>>> classLoadersClasses;
 		protected Map<ClassLoader, Map<String, ?>> classLoadersPackages;
 		protected Map<String, MethodHandle> classLoadersMethods;
@@ -426,19 +420,19 @@ public class Classes implements Component, MembersRetriever {
 			return classLoaders;
 		}
 		
-		public Function<Boolean, ClassLoader> setAsMaster(ClassLoader classLoader, ClassLoader futureParent, boolean mantainHierarchy) {
-			return LowLevelObjectsHandler.setAsParent(getMaster(classLoader), futureParent, mantainHierarchy);
+		public Function<Boolean, ClassLoader> setAsMaster(ClassLoader classLoader, ClassLoader futureParent) {
+			return LowLevelObjectsHandler.setAsParent(getMaster(classLoader), futureParent);
 		}
 		
-		public Function<Boolean, ClassLoader> setAsParent(ClassLoader classLoader, ClassLoader futureParent, boolean mantainHierarchy) {
-			return LowLevelObjectsHandler.setAsParent(classLoader, futureParent, mantainHierarchy);
+		public Function<Boolean, ClassLoader> setAsParent(ClassLoader classLoader, ClassLoader futureParent) {
+			return LowLevelObjectsHandler.setAsParent(classLoader, futureParent);
 		}
 		
 		public ClassLoader getParent(ClassLoader classLoader) {
 			return LowLevelObjectsHandler.getParent(classLoader);
 		}
 		
-		private  ClassLoader getMaster(ClassLoader classLoader) {
+		public  ClassLoader getMaster(ClassLoader classLoader) {
 			while (getParent(classLoader) != null) {
 				classLoader = getParent(classLoader); 
 			}
@@ -447,14 +441,13 @@ public class Classes implements Component, MembersRetriever {
 		
 		public MethodHandle getDefinePackageMethod(ClassLoader classLoader) {
 			return getMethod(
-				classLoader,
 				classLoader.getClass().getName() + "_" + "definePackage",
 				() -> findDefinePackageMethodAndMakeItAccesible(classLoader)
 			);
 		}	
 		
 		private MethodHandle findDefinePackageMethodAndMakeItAccesible(ClassLoader classLoader) {
-			Method method = Members.findAll(
+			return Methods.findFirstDirectHandle(
 				MethodCriteria.byScanUpTo((cls) -> 
 					cls.getName().equals(ClassLoader.class.getName())
 				).name(
@@ -462,22 +455,34 @@ public class Classes implements Component, MembersRetriever {
 				).and().parameterTypesAreAssignableFrom(
 					String.class, String.class, String.class, String.class,
 					String.class, String.class, String.class, URL.class
-				),
-				classLoader
-			).stream().findFirst().orElse(null);
-			return Methods.convertToMethodHandleBag(method).getValue();
+				), classLoader.getClass()
+			);
 		}
 		
 		public MethodHandle getDefineClassMethod(ClassLoader classLoader) {
 			return getMethod(
-				classLoader,
 				Classes.getClassLoader(classLoader.getClass()) + "_" + classLoader + "_" +  "defineClass",
 				() -> findDefineClassMethodAndMakeItAccesible(classLoader)
 			);
 		}
 		
+		Object getClassLoadingLock(ClassLoader classLoader, String className) {
+			try {
+				return getGetClassLoadingLockMethod(classLoader).invoke(classLoader, className);
+			} catch (Throwable exc) {
+				return Throwables.throwException(exc);
+			}
+		}
+		
+		public MethodHandle getGetClassLoadingLockMethod(ClassLoader classLoader) {
+			return getMethod(
+				Classes.getClassLoader(classLoader.getClass()) + "_" + classLoader + "_" +  "getClassLoadingLock",
+				() -> findGetClassLoadingLockMethodAndMakeItAccesible(classLoader)
+			);
+		}
+		
 		private MethodHandle findDefineClassMethodAndMakeItAccesible(ClassLoader classLoader) {
-			Method method = Members.findAll(
+			return Methods.findFirstDirectHandle(
 				MethodCriteria.byScanUpTo((cls) -> cls.getName().equals(ClassLoader.class.getName())).name(
 					(classLoader instanceof MemoryClassLoader? "_defineClass" : "defineClass")::equals
 				).and().parameterTypes(params -> 
@@ -485,12 +490,24 @@ public class Classes implements Component, MembersRetriever {
 				).and().parameterTypesAreAssignableFrom(
 					String.class, ByteBuffer.class, ProtectionDomain.class
 				).and().returnType((cls) -> cls.getName().equals(Class.class.getName())),
-				classLoader
-			).stream().findFirst().orElse(null);
-			return Methods.convertToMethodHandleBag(method).getValue();
+				classLoader.getClass()
+			);
 		}
 		
-		private MethodHandle getMethod(ClassLoader classLoader, String key, Supplier<MethodHandle> methodSupplier) {
+		private MethodHandle findGetClassLoadingLockMethodAndMakeItAccesible(ClassLoader classLoader) {
+			return Methods.findFirstDirectHandle(
+				MethodCriteria.byScanUpTo((cls) -> cls.getName().equals(ClassLoader.class.getName())).name(
+					"getClassLoadingLock"::equals
+				).and().parameterTypes(params -> 
+					params.length == 1
+				).and().parameterTypesAreAssignableFrom(
+					String.class
+				),
+				classLoader.getClass()
+			);
+		}
+		
+		private MethodHandle getMethod(String key, Supplier<MethodHandle> methodSupplier) {
 			MethodHandle method = classLoadersMethods.get(key);
 			if (method == null) {
 				synchronized (classLoadersMethods) {
@@ -519,7 +536,8 @@ public class Classes implements Component, MembersRetriever {
 					}
 				}
 			}
-			throw Throwables.toRuntimeException("Could not find classes Vector on " + classLoader);
+			ManagedLoggersRepository.logWarn(getClass()::getName, "'classes' collection has not been initialized on {}: trying recursive call", classLoader);
+			return retrieveLoadedClasses(classLoader);
 		}
 		
 		public Collection<Class<?>> retrieveAllLoadedClasses(ClassLoader classLoader) {
@@ -537,21 +555,111 @@ public class Classes implements Component, MembersRetriever {
 				synchronized (classLoadersPackages) {
 					packages = classLoadersPackages.get(classLoader);
 					if (packages == null) {
-						classLoadersPackages.put(classLoader, (packages = (Map<String, ?>)LowLevelObjectsHandler.retrieveLoadedPackages(classLoader)));
+						classLoadersPackages.put(classLoader, (packages = LowLevelObjectsHandler.retrieveLoadedPackages(classLoader)));
 					}
 				}
 			
 			}
 			if (packages == null) {
-				throw Throwables.toRuntimeException("Could not find packages Map on " + classLoader);
+				Throwables.throwException("Could not find packages Map on {}", classLoader);
 			}
 			return packages;
 			
 		}
 		
 		public Package retrieveLoadedPackage(ClassLoader classLoader, Object packageToFind, String packageName) {
-			return ThrowingSupplier.get(() -> LowLevelObjectsHandler.retrieveLoadedPackage(classLoader, packageToFind, packageName));
+			return Executor.get(() -> LowLevelObjectsHandler.retrieveLoadedPackage(classLoader, packageToFind, packageName));
 		}
+		
+		public <T> Class<T> loadOrDefineByJavaClass(
+			JavaClass javaClass,
+			ClassLoader classLoader
+		) throws ClassNotFoundException {
+			Map<String, JavaClass> repository = new HashMap<>();
+			repository.put(javaClass.getName(), javaClass);
+			return loadOrDefineByJavaClass(javaClass.getName(), repository, classLoader);
+		}
+
+		
+		public <T> Class<T> loadOrDefineByJavaClass(
+			String className,
+			Map<String, JavaClass> byteCodes,
+			ClassLoader classLoader
+		) throws ClassNotFoundException {
+			if (!(classLoader instanceof MemoryClassLoader)) {
+				return loadOrDefineByByteCode(
+					className, clsName -> byteCodes.get(clsName).getByteCode(), classLoader,
+					getDefineClassMethod(classLoader), getDefinePackageMethod(classLoader)
+				);
+			} else {
+				for (Map.Entry<String, JavaClass> clazz : byteCodes.entrySet()) {
+					((MemoryClassLoader)classLoader).addByteCode(
+						clazz.getKey(), clazz.getValue().getByteCode()
+					);
+				}
+				return (Class<T>) classLoader.loadClass(className);
+			}
+		}
+		
+		public Class<?> loadOrDefineByByteCode(ByteBuffer byteCode, ClassLoader classLoader) throws ClassNotFoundException {
+			Map<String, JavaClass> repository = new HashMap<>();
+			return JavaClass.extractByUsing(byteCode, javaClass -> {
+				repository.put(javaClass.getName(), javaClass);
+				return loadOrDefineByJavaClass(javaClass.getName(), repository, classLoader);
+			});
+		}
+		
+		public <T> Class<T> loadOrDefineByByteCode(
+			String className,
+			Map<String, ByteBuffer> repository,
+			ClassLoader classLoader
+		) throws ClassNotFoundException {
+			if (!(classLoader instanceof MemoryClassLoader)) {
+				return loadOrDefineByByteCode(
+					className, clsName -> repository.get(clsName), classLoader,
+					getDefineClassMethod(classLoader), getDefinePackageMethod(classLoader)
+				);
+			} else {
+				for (Map.Entry<String, ByteBuffer> clazz : repository.entrySet()) {
+					((MemoryClassLoader)classLoader).addByteCode(
+						clazz.getKey(), clazz.getValue()
+					);
+				}
+				return (Class<T>) classLoader.loadClass(className);
+			}
+		}
+		
+		
+		private <T> Class<T> loadOrDefineByByteCode(
+			String className, 
+			Function<String, ByteBuffer> byteCodeSupplier,
+			ClassLoader classLoader,
+			MethodHandle defineClassMethod, 
+			MethodHandle definePackageMethod
+		) throws ClassNotFoundException {
+			try {
+				try {
+					return (Class<T>) classLoader.loadClass(className);
+				}  catch (ClassNotFoundException | NoClassDefFoundError exc) {
+					Class<T> cls = defineOrLoad(classLoader, defineClassMethod, className, byteCodeSupplier.apply(className));
+	    			definePackageFor(cls, classLoader, definePackageMethod);
+	    			return cls;
+				}
+			}  catch (ClassNotFoundException | NoClassDefFoundError | InvocationTargetException exc) {
+				if (byteCodeSupplier.apply(className) == null) {
+					throw new ClassNotFoundException(className);
+				}
+				String newNotFoundClassName = Classes.retrieveNames(exc).stream().findFirst().orElseGet(() -> null);
+				loadOrDefineByByteCode(
+					newNotFoundClassName,
+					byteCodeSupplier, classLoader, defineClassMethod, definePackageMethod
+        		);
+				return loadOrDefineByByteCode(className, byteCodeSupplier,
+					classLoader,
+					defineClassMethod, definePackageMethod
+        		);
+			}
+	    }
 		
 		public <T> Class<T> loadOrDefine(
 			Class<T> toLoad, 
@@ -564,153 +672,43 @@ public class Classes implements Component, MembersRetriever {
 			);
 		}
 		
-		public <T> Class<T> loadOrDefineByJavaClass(
-			JavaClass javaClass,
-			ClassLoader classLoader
-		) throws ClassNotFoundException {
-			return loadOrDefineByJavaClass(
-				javaClass, classLoader,
-				getDefineClassMethod(classLoader),
-				getDefinePackageMethod(classLoader)
-			);
-		}
-		
-		public Map<String, Class<?>> loadOrDefineByByteCodes(
-			Map<String, ByteBuffer> byteCodes,
-			ClassLoader classLoader
-		) throws ClassNotFoundException {
-			Map<String, Class<?>> classes = new HashMap<>();
-			if (!(classLoader instanceof MemoryClassLoader)) {
-				for (Map.Entry<String, ByteBuffer> classNameForByteCode : byteCodes.entrySet()) {
-					classes.put(classNameForByteCode.getKey(),loadOrDefineByByteCode(classNameForByteCode.getKey(), byteCodes, classLoader));
-				}
-			} else {
-				for (Map.Entry<String, ByteBuffer> clazz : byteCodes.entrySet()) {
-					((MemoryClassLoader)classLoader).addByteCode(
-						clazz.getKey(), clazz.getValue()
-					);
-					classes.put(clazz.getKey(), classLoader.loadClass(clazz.getKey()));
-				}
-			}	
-			return classes;
-		}
-		
-		public <T> Class<T> loadOrDefineByByteCode(
-			String className,
-			Map<String, ByteBuffer> byteCodes,
-			ClassLoader classLoader
-		) throws ClassNotFoundException {
-			if (!(classLoader instanceof MemoryClassLoader)) {
-				try {
-					return loadOrDefineByByteCode(byteCodes.get(className), classLoader);
-				} catch (ClassNotFoundException exc) {
-					String newNotFoundClassName = Classes.retrieveNames(exc).stream().findFirst().orElseGet(() -> null);
-					loadOrDefineByByteCode(newNotFoundClassName, byteCodes, classLoader);
-					return loadOrDefineByByteCode(byteCodes.get(className), classLoader);
-				}
-			} else {
-				((MemoryClassLoader)classLoader).addByteCodes(byteCodes);
-				return (Class<T>) classLoader.loadClass(className);
-			}
-		}
-		
-		public <T> Class<T> loadOrDefineByJavaClass(
-			String className,
-			Map<String, JavaClass> byteCodes,
-			ClassLoader classLoader
-		) throws ClassNotFoundException {
-			if (!(classLoader instanceof MemoryClassLoader)) {
-				try {
-					return loadOrDefineByJavaClass(byteCodes.get(className), classLoader);
-				} catch (ClassNotFoundException exc) {
-					String newNotFoundClassName = Classes.retrieveNames(exc).stream().findFirst().orElseGet(() -> null);
-					loadOrDefineByJavaClass(newNotFoundClassName, byteCodes, classLoader);
-					return loadOrDefineByJavaClass(byteCodes.get(className), classLoader);
-				}
-			} else {
-				for (Map.Entry<String, JavaClass> clazz : byteCodes.entrySet()) {
-					((MemoryClassLoader)classLoader).addByteCode(
-						clazz.getKey(), clazz.getValue().getByteCode()
-					);
-				}
-				return (Class<T>) classLoader.loadClass(className);
-			}
-		}
-		
-		public <T> Class<T> loadOrDefineByByteCode(
-			ByteBuffer byteCode,
-			ClassLoader classLoader
-		) throws ClassNotFoundException {
-			return loadOrDefineByJavaClass(
-				JavaClass.create(byteCode), classLoader,
-				getDefineClassMethod(classLoader),
-				getDefinePackageMethod(classLoader)
-			);
-		}
-		
-		private <T> Class<T> loadOrDefineByJavaClass(
-			JavaClass javaClass, 
-			ClassLoader classLoader, 
-			MethodHandle defineClassMethod, 
-			MethodHandle definePackageMethod
-		) throws ClassNotFoundException {
-	    	try {
-	    		return (Class<T>) classLoader.loadClass(javaClass.getName());
-	    	} catch (ClassNotFoundException | NoClassDefFoundError outerEx) {
-	    		try {
-	    			Class<T> cls = defineOrLoad(classLoader, defineClassMethod, javaClass.getName(), javaClass.getByteCode());
-	    			definePackageFor(cls, classLoader, definePackageMethod);
-	    			return cls;
-				} catch (ClassNotFoundException | NoClassDefFoundError | InvocationTargetException outerExc) {
-					String newNotFoundClassName = Classes.retrieveNames(outerExc).stream().findFirst().orElseGet(() -> null);
-					loadOrDefine(
-	        			Class.forName(
-	        				newNotFoundClassName, false, classLoader
-	        			),
-	        			classLoader, defineClassMethod, definePackageMethod
-	        		);
-					return loadOrDefineByJavaClass(javaClass, classLoader,
-						defineClassMethod, definePackageMethod
-	        		);
-				}
-	    	}
-	    }
-		
 		private <T> Class<T> loadOrDefine(
 			Class<T> toLoad, 
 			ClassLoader classLoader, 
 			MethodHandle defineClassMethod, 
 			MethodHandle definePackageMethod
 		) throws ClassNotFoundException {
-	    	try {
-	    		return (Class<T>)classLoader.loadClass(toLoad.getName());
-	    	} catch (ClassNotFoundException | NoClassDefFoundError outerEx) {
-	    		try {
-	    			Class<T> cls = defineOrLoad(classLoader, defineClassMethod, toLoad.getName(), Streams.shareContent(Classes.getByteCode(toLoad)));
+			String className = toLoad.getName();
+			try {
+				try {
+					return (Class<T>)classLoader.loadClass(className);
+				} catch (ClassNotFoundException | NoClassDefFoundError exc) {
+					Class<T> cls = defineOrLoad(classLoader, defineClassMethod, className, Streams.shareContent(Classes.getByteCode(toLoad)));
 	    			definePackageFor(cls, classLoader, definePackageMethod);
 	    			return cls;
-				} catch (ClassNotFoundException | NoClassDefFoundError | InvocationTargetException outerExc) {
-					String newNotFoundClassName = Classes.retrieveNames(outerExc).stream().findFirst().orElseGet(() -> null);
-					loadOrDefine(
-	        			Class.forName(
-	        				newNotFoundClassName, false, toLoad.getClassLoader()
-	        			),
-	        			classLoader, defineClassMethod, definePackageMethod
-	        		);
-					return (Class<T>)loadOrDefine(
-	        			Class.forName(
-	        					toLoad.getName(), false, toLoad.getClassLoader()
-	        			),
-	        			classLoader, defineClassMethod, definePackageMethod
-	        		);
 				}
-	    	}
+			} catch (ClassNotFoundException | NoClassDefFoundError | InvocationTargetException exc) {
+				String newNotFoundClassName = Classes.retrieveNames(exc).stream().findFirst().orElseGet(() -> null);
+				loadOrDefine(
+        			Class.forName(
+        				newNotFoundClassName, false, toLoad.getClassLoader()
+        			),
+        			classLoader, defineClassMethod, definePackageMethod
+        		);
+				return (Class<T>)loadOrDefine(
+        			Class.forName(
+        				className, false, toLoad.getClassLoader()
+        			),
+        			classLoader, defineClassMethod, definePackageMethod
+        		);
+			}
 	    }
 		
-		public <T> Class<T> defineOrLoad(ClassLoader classLoader, JavaClass javaClass) throws ClassNotFoundException, InvocationTargetException, NoClassDefFoundError {
-			Class<T> definedClass = defineOrLoad(classLoader, getDefineClassMethod(classLoader), javaClass.getName(), javaClass.getByteCode());
+		public <T> Class<T> defineOrLoad(ClassLoader classLoader, JavaClass javaClass) throws ReflectiveOperationException {
+			String className = javaClass.getName();
+			Class<T> definedClass = defineOrLoad(classLoader, getDefineClassMethod(classLoader), className, javaClass.getByteCode());
 			definePackageFor(definedClass, classLoader, getDefinePackageMethod(classLoader));
-			return definedClass;
+			return definedClass;			
 		}
 		
 
@@ -721,14 +719,19 @@ public class Classes implements Component, MembersRetriever {
 			ByteBuffer byteCode
 		) throws ClassNotFoundException, InvocationTargetException, NoClassDefFoundError {
 			try {
-				return (Class<T>)method.invoke(classLoader, className, byteCode, null);
+				synchronized (getClassLoadingLock(classLoader, className)) {
+					return (Class<T>)method.invoke(classLoader, className, byteCode, null);
+				}
 			} catch (InvocationTargetException | ClassNotFoundException | NoClassDefFoundError exc) {
 				throw exc;
 			} catch (java.lang.LinkageError exc) {
-				logWarn("Class {} is already defined", className);
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Class {} is already defined", className);
 				return (Class<T>)classLoader.loadClass(className);
 			} catch (Throwable exc) {
-				throw Throwables.toRuntimeException(exc);
+				if (byteCode == null) {
+					throw new ClassNotFoundException(className);
+				}
+				return Throwables.throwException(exc);
 			}
 		}
 		
@@ -739,12 +742,12 @@ public class Classes implements Component, MembersRetriever {
 			String implVendor,
 			URL sealBase
 		) throws IllegalArgumentException {
-	    	return ThrowingSupplier.get(() -> {
+	    	return Executor.get(() -> {
 	    		try {
 	    			return (Package) definePackageMethod.invoke(classLoader, name, specTitle, specVersion, specVendor, implTitle,
 	    				implVersion, implVendor, sealBase);
 	    		} catch (IllegalArgumentException exc) {
-	    			logWarn("Package " + name + " already defined");
+	    			ManagedLoggersRepository.logWarn(getClass()::getName, "Package " + name + " already defined");
 	    			return retrieveLoadedPackage(classLoader, name);
 	    		}
 			});
@@ -758,9 +761,12 @@ public class Classes implements Component, MembersRetriever {
 				String pckgName = cls.getName().substring(
 			    	0, cls.getName().lastIndexOf(".")
 			    );
-			    Package pkg = retrieveLoadedPackage(classLoader, pckgName);
-			    if (pkg == null) {
-			    	pkg = definePackage(classLoader, definePackageMethod, pckgName, null, null, null, null, null, null, null);
+			    if (retrieveLoadedPackage(classLoader, pckgName) == null) {
+			    	Synchronizer.execute(classLoader + "_" + pckgName,() -> {
+			    		if (retrieveLoadedPackage(classLoader, pckgName) == null) {
+			    			definePackage(classLoader, definePackageMethod, pckgName, null, null, null, null, null, null, null);
+			    		}
+			    	});
 				}	
 			}
 		}
@@ -813,6 +819,153 @@ public class Classes implements Component, MembersRetriever {
 			}
 		}
 		
+		public ClassLoader getClassLoaderOfPath(ClassLoader classLoader, String path) {
+			FileSystemItem fIS = FileSystemItem.ofPath(path);
+			ClassLoader pathLoader = null;
+			for (ClassLoader cl : getHierarchy(classLoader)) {
+				URL[] urls = getURLs(cl);
+				if (urls != null) {
+					for (URL url : urls) {
+						FileSystemItem loadedPathFIS = FileSystemItem.of(url);
+						if (loadedPathFIS.equals(fIS) || loadedPathFIS.isParentOf(fIS)) {
+							pathLoader = cl;
+						}
+					}
+				}
+			}
+			return pathLoader;
+		}
+		
+		public boolean isItPossibleToAddClassPaths(ClassLoader classLoader) {
+			if (classLoader != null) {
+				if (classLoader instanceof URLClassLoader || isBuiltinClassLoader(classLoader) || classLoader instanceof PathScannerClassLoader) {
+					return true;
+				} else {
+					return isItPossibleToAddClassPaths(getParent(classLoader));
+				}
+			} else {
+				return false;
+			}
+		}
+		
+		public Collection<String> addClassPath(ClassLoader classLoader, String... classPaths) {
+			return addClassPaths(classLoader, Arrays.asList(classPaths));
+		}
+		
+		public Collection<String> addClassPath(ClassLoader classLoader, Predicate<String> checkForAddedClasses, String... classPaths) {
+			return addClassPaths(classLoader, checkForAddedClasses, Arrays.asList(classPaths));
+		}
+		
+		public Collection<String> addClassPaths(ClassLoader classLoader, Predicate<String> checkForAddedClasses, Collection<String>... classPathCollections) {
+			if (!(classLoader instanceof URLClassLoader || isBuiltinClassLoader(classLoader) || classLoader instanceof PathScannerClassLoader)) {
+				if (!isItPossibleToAddClassPaths(classLoader)) {
+					throw new UnsupportedException(
+						Strings.compile("Could not add class paths to {} because the type {} is not supported",
+								Objects.getId(classLoader), classLoader.getClass())
+					);
+				} else {
+					return addClassPaths(getParent(classLoader), checkForAddedClasses, classPathCollections);
+				}
+			}
+			if (LowLevelObjectsHandler.isClassLoaderDelegate(classLoader)) {
+				return addClassPaths(Fields.getDirect(classLoader, "classLoader"), checkForAddedClasses, classPathCollections);
+			}
+			Collection<String> paths = new HashSet<>();
+			for (Collection<String> classPaths : classPathCollections) {
+				paths.addAll(classPaths);
+			}
+			if (classLoader instanceof URLClassLoader || LowLevelObjectsHandler.isBuiltinClassLoader(classLoader)) {	
+				paths.removeAll(getAllLoadedPaths(classLoader));
+				if (!paths.isEmpty()) {
+					Object target = classLoader instanceof URLClassLoader ?
+						classLoader :
+						Fields.getDirect(classLoader, "ucp");
+					if (target != null) {
+						Consumer<URL> classPathAdder = 	urls -> Methods.invokeDirect(target, "addURL", urls);
+						paths.stream().map(classPath -> FileSystemItem.ofPath(classPath).getURL()).forEach(url -> {
+							classPathAdder.accept(url);
+						});
+						return paths;
+					}
+				}
+			} else if (classLoader instanceof PathScannerClassLoader) {
+				return ((PathScannerClassLoader)classLoader).scanPathsAndAddAllByteCodesFound(paths, checkForAddedClasses);
+			}
+			return new HashSet<>();
+		}
+		
+		public Collection<String> addClassPaths(ClassLoader classLoader, Collection<String>... classPathCollections) {
+			return addClassPaths(classLoader, (path) -> true, classPathCollections);
+		}
+		
+		public Collection<String> getLoadedPaths(ClassLoader classLoader) {
+			Collection<String> paths = new LinkedHashSet<>();
+			if (classLoader instanceof PathScannerClassLoader) {
+				paths.addAll(((PathScannerClassLoader)classLoader).loadedPaths);
+			} else {
+				URL[] resUrl = getURLs(classLoader);
+				if (resUrl != null) {
+					for (int i = 0; i < resUrl.length; i++) {
+						paths.add(Paths.convertURLPathToAbsolutePath(resUrl[i].getPath()));
+					}
+				}
+			}
+			return paths;
+		}
+		
+		public Collection<String> getAllLoadedPaths(ClassLoader classLoader) {
+			Collection<String> paths = new LinkedHashSet<>();
+			while(classLoader != null) {
+				paths.addAll(getLoadedPaths(classLoader));
+				classLoader = getParent(classLoader);
+			}
+			return paths;
+		}
+		
+		public boolean isBuiltinClassLoader(ClassLoader classLoader) {
+			return LowLevelObjectsHandler.isBuiltinClassLoader(classLoader);
+		}
+		
+		public URL[] getURLs(ClassLoader classLoader) {
+			if (classLoader instanceof URLClassLoader) {
+				return ((URLClassLoader)classLoader).getURLs();
+			} else if (LowLevelObjectsHandler.isClassLoaderDelegate(classLoader)) {
+				return getURLs(Fields.getDirect(classLoader, "classLoader"));
+			} else if (LowLevelObjectsHandler.isBuiltinClassLoader(classLoader)) {
+				Object urlClassPath = Fields.getDirect(classLoader, "ucp");
+				if (urlClassPath != null) {
+					return Methods.invoke(urlClassPath, "getURLs");
+				}
+			} else if (classLoader instanceof PathScannerClassLoader) {
+				return ((PathScannerClassLoader)classLoader).getURLs();
+			}
+			return null;
+		}
+		
+		@SafeVarargs
+		public final Collection<FileSystemItem> getResources(ClassLoader classLoader, String... paths) {
+			return getResources(classLoader, Arrays.asList(paths)); 
+		}	
+		
+		@SafeVarargs
+		public final Collection<FileSystemItem> getResources(ClassLoader classLoader, Collection<String>... pathCollections) {
+			Collection<FileSystemItem> paths = new HashSet<>();
+			for (Collection<String> pathCollection : pathCollections) {
+				for (String path : pathCollection) {
+					try {
+						paths.addAll(
+							Collections.list(classLoader.getResources(path)).stream().map(url ->
+								FileSystemItem.of(url)
+							).collect(Collectors.toSet())
+						);
+					} catch (IOException exc) {
+						Throwables.throwException(exc);
+					}
+				}
+			}
+			return paths;
+		}
+		
 		public void unregister(ClassLoader classLoader) {
 			classLoadersClasses.remove(classLoader);
 			classLoadersPackages.remove(classLoader);
@@ -828,8 +981,22 @@ public class Classes implements Component, MembersRetriever {
 				this.classLoadersPackages.clear();
 				this.classLoadersPackages = null;
 			} else {
-				throw Throwables.toRuntimeException("Could not close singleton instance " + this);
+				Throwables.throwException("Could not close singleton instance {}", this);
 			}
 		}
+		
+		public static class UnsupportedException extends RuntimeException {
+			
+			private static final long serialVersionUID = 8964839983768809586L;
+
+			public UnsupportedException(String s) {
+				super(s);
+			}
+			
+			public UnsupportedException(String s, Throwable cause) {
+				super(s, cause);
+			}
+		}	
 	}
+
 }

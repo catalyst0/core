@@ -31,6 +31,7 @@ package org.burningwave.core.io;
 import static org.burningwave.core.assembler.StaticComponentContainer.Cache;
 import static org.burningwave.core.assembler.StaticComponentContainer.FileSystemHelper;
 import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
+import static org.burningwave.core.assembler.StaticComponentContainer.Objects;
 import static org.burningwave.core.assembler.StaticComponentContainer.Paths;
 import static org.burningwave.core.assembler.StaticComponentContainer.Streams;
 import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
@@ -48,7 +49,11 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.zip.ZipEntry;
 
-class ZipFile implements IterableZipContainer {
+import org.burningwave.core.Memorizer;
+
+@SuppressWarnings("unchecked")
+class ZipFile implements IterableZipContainer, Memorizer {
+	private final static String classId;
 	String absolutePath;
 	String conventionedAbsolutePath;
 	IterableZipContainer parent;
@@ -57,10 +62,18 @@ class ZipFile implements IterableZipContainer {
 	Collection<Entry> entries;
 	Runnable temporaryFileDeleter;
 	java.util.zip.ZipFile originalZipFile;
+	Boolean isDestroyed;
+	Supplier<ByteBuffer> contentSupplier;
+	
+	static {
+		classId = Objects.getClassId(ZipFile.class);
+	}
 	
 	ZipFile(String absolutePath, ByteBuffer content) {
+		isDestroyed = Boolean.FALSE;				
 		this.absolutePath = Paths.clean(absolutePath);
 		entries = ConcurrentHashMap.newKeySet();
+		this.contentSupplier = () -> content;
 		try (java.util.zip.ZipFile zipFile = retrieveFile(absolutePath, content)) {
 			Enumeration<? extends ZipEntry> entriesIterator = zipFile.entries();
 			while (entriesIterator.hasMoreElements()) {
@@ -69,27 +82,42 @@ class ZipFile implements IterableZipContainer {
 					new Entry(
 						this, 
 						zipEntry.getName(), () -> {
-							try (
-								InputStream zipEntryIS = retrieveFile(absolutePath, content).getInputStream(zipEntry);
-								ByteBufferOutputStream bBOS = new ByteBufferOutputStream()
-							){
-								 Streams.copy(zipEntryIS, bBOS);
-								 return bBOS.toByteBuffer();
-							} catch (Throwable exc) {
-								ManagedLoggersRepository.logError(this.getClass(), "Could not load content of " + zipEntry.getName() + " of " + getAbsolutePath(), exc);
-								return null;
-							}
+							return buildZipEntry(absolutePath, content, zipEntry, true);
 						}
 					)
 				);
-				originalZipFile = null;
 			}
+			originalZipFile = null;
 		} catch (IOException exc) {
-			throw Throwables.toRuntimeException(exc);
+			Throwables.throwException(exc);
 		}
 		entriesIterator = entries.iterator();
 	}
 
+	private ByteBuffer buildZipEntry(String absolutePath, ByteBuffer content, ZipEntry zipEntry, boolean recursive) {
+		try (
+			InputStream zipEntryIS = retrieveFile(absolutePath, content).getInputStream(zipEntry);
+			ByteBufferOutputStream bBOS = new ByteBufferOutputStream()
+		){
+			 Streams.copy(zipEntryIS, bBOS);
+			 return bBOS.toByteBuffer();
+		} catch (Throwable exc) {
+			if (recursive) {
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Exception occurred while building zip entry {} of {}: {}", zipEntry.getName(), absolutePath, exc.getMessage());
+				this.originalZipFile = null;
+				ManagedLoggersRepository.logInfo(getClass()::getName, "Trying recursive call");
+				return buildZipEntry(absolutePath, content, zipEntry, false);
+			}
+			ManagedLoggersRepository.logError(getClass()::getName, "Could not load content of {} of {}", exc, zipEntry.getName(), absolutePath);
+			return null;
+		}
+	}
+	
+	@Override
+	public String getTemporaryFolderPrefix() {
+		return classId;
+	}
+	
 	private java.util.zip.ZipFile retrieveFile(String absolutePath, ByteBuffer content) {
 		java.util.zip.ZipFile originalZipFile = this.originalZipFile;
 		if (originalZipFile == null) {
@@ -97,22 +125,22 @@ class ZipFile implements IterableZipContainer {
 				if ((originalZipFile = this.originalZipFile) == null) {
 					File file = new File(absolutePath);
 					if (!file.exists()) {
-						File temporaryFolder = FileSystemHelper.getOrCreateTemporaryFolder(toString());
-						FileSystemItem fileSystemItem = FileSystemItem.ofPath(temporaryFolder.getAbsolutePath() + "/" + file.getName());
-						if (!fileSystemItem.exists()) {
-							fileSystemItem = Streams.store(temporaryFolder.getAbsolutePath() + "/" + file.getName(), content);
-							String temporaryFileAbsolutePath = fileSystemItem.getAbsolutePath();
+						File temporaryFolder = getOrCreateTemporaryFolder();
+						String fileAbsolutePath = Paths.clean(temporaryFolder.getAbsolutePath()) + "/" + Paths.toSquaredPath(absolutePath, false);
+						file = new File(fileAbsolutePath);
+						if (!file.exists()) {
+							FileSystemItem fileSystemItem = Streams.store(fileAbsolutePath, content);
 							temporaryFileDeleter = () -> {
-								FileSystemHelper.delete(new File(temporaryFileAbsolutePath));
-								Cache.pathForContents.remove(temporaryFileAbsolutePath);
+								//String temporaryFileAbsolutePath = fileSystemItem.getAbsolutePath();
+								FileSystemHelper.delete(fileSystemItem.getAbsolutePath());
+								fileSystemItem.destroy();
 							};
-						}			
-						file = new File(fileSystemItem.getAbsolutePath());
+						}
 					}
 					try {
 						originalZipFile = this.originalZipFile = new java.util.zip.ZipFile(file);
 					} catch (IOException exc) {
-						throw Throwables.toRuntimeException(exc);
+						Throwables.throwException(exc);
 					}
 				}
 			}
@@ -120,15 +148,16 @@ class ZipFile implements IterableZipContainer {
 		return originalZipFile;
 	}
 	
-	private ZipFile(String absolutePath, Collection<Entry> entries) {
+	private ZipFile(String absolutePath, Collection<Entry> entries, Supplier<ByteBuffer> contentSupplier) {
 		this.absolutePath = absolutePath;
 		this.entries = entries;
 		this.entriesIterator = entries.iterator();
+		this.contentSupplier = contentSupplier;
 	}
 	
 	@Override
 	public IterableZipContainer duplicate() {
-		return new ZipFile(absolutePath, entries);
+		return new ZipFile(absolutePath, entries, contentSupplier);
 	}
 	
 	@Override
@@ -152,7 +181,7 @@ class ZipFile implements IterableZipContainer {
 						conventionedAbsolutePath = absolutePath;
 					}
 				}
-				conventionedAbsolutePath += IterableZipContainer.ZIP_PATH_SEPARATOR;
+				conventionedAbsolutePath += IterableZipContainer.PATH_SUFFIX;
 			}
 		}
 		return conventionedAbsolutePath;
@@ -168,10 +197,9 @@ class ZipFile implements IterableZipContainer {
 
 	@Override
 	public ByteBuffer toByteBuffer() {
-		return Cache.pathForContents.get(absolutePath);
+		return Cache.pathForContents.getOrUploadIfAbsent(getAbsolutePath(), contentSupplier);
 	}
 
-	@SuppressWarnings("unchecked")
 	@Override
 	public <Z extends IterableZipContainer.Entry> Z getNextEntry() {
 		return (Z) (currentZipEntry = entriesIterator.hasNext()? entriesIterator.next() : null);
@@ -205,7 +233,7 @@ class ZipFile implements IterableZipContainer {
 			try {
 				originalZipFile.close();
 			} catch (IOException exc) {
-				logError("Exception while closing " + getAbsolutePath(), exc);
+				ManagedLoggersRepository.logError(getClass()::getName, "Exception while closing " + getAbsolutePath(), exc);
 			}
 		}
 		this.absolutePath = null;
@@ -214,21 +242,36 @@ class ZipFile implements IterableZipContainer {
 	}
 	
 	@Override
-	public void destroy() {
-		IterableZipContainer.super.destroy();
-		close();
-		Runnable temporaryFileDeleter = this.temporaryFileDeleter;
-		if (temporaryFileDeleter != null) {
-			this.temporaryFileDeleter = null;
-			temporaryFileDeleter.run();			
+	public void destroy(boolean removeFromCache) {
+		boolean destroy = false;
+		synchronized (isDestroyed) {
+			if (!isDestroyed) {
+				destroy = isDestroyed = Boolean.TRUE;
+			}
+		}
+		if (destroy) {
+			contentSupplier = null;
+			IterableZipContainer.super.destroy(removeFromCache);		
+			for (Entry entry : entries) {
+				entry.destroy();
+			}
+			entries.clear();
+			close();
+			Runnable temporaryFileDeleter = this.temporaryFileDeleter;
+			if (temporaryFileDeleter != null) {
+				this.temporaryFileDeleter = null;
+				temporaryFileDeleter.run();			
+			}
 		}
 	}
 	
 	public static class Entry implements IterableZipContainer.Entry {
 		private ZipFile zipMemoryContainer;
+		private String cleanedName;
 		private String name;
 		private String absolutePath;
 		private Supplier<ByteBuffer> zipEntryContentSupplier;
+		private Boolean archive;
 
 		public Entry(ZipFile zipMemoryContainer, String entryName, Supplier<ByteBuffer> zipEntryContentSupplier) {
 			this.zipMemoryContainer = zipMemoryContainer;
@@ -236,13 +279,39 @@ class ZipFile implements IterableZipContainer {
 			this.absolutePath = Paths.clean(zipMemoryContainer.getAbsolutePath() + "/" + entryName);
 			this.zipEntryContentSupplier = zipEntryContentSupplier;
 		}
-
+		
 		@Override
-		@SuppressWarnings("unchecked")
+		public boolean isArchive() {
+			if (archive != null) {
+				return archive;
+			}
+			ByteBuffer content = toByteBuffer();
+			return archive = content != null ? Streams.isArchive(content) : false;
+		}
+		
+		@Override
 		public <C extends IterableZipContainer> C getParentContainer() {
 			return (C) zipMemoryContainer;
 		}
-
+		
+		@Override
+		public String getCleanedName() {
+			if (cleanedName != null) {
+				return cleanedName;
+			}
+			String cleanedName = name;
+			if (!cleanedName.startsWith("/")) {
+				this.cleanedName = cleanedName;
+			} else {
+				if (!cleanedName.equals("/")) {
+					this.cleanedName =  cleanedName.substring(1, cleanedName.length());
+				} else {
+					this.cleanedName = "";
+				}
+			}
+			return this.cleanedName;
+		}
+		
 		@Override
 		public String getName() {
 			return name;
@@ -261,6 +330,15 @@ class ZipFile implements IterableZipContainer {
 		@Override
 		public ByteBuffer toByteBuffer() {
 			return Cache.pathForContents.getOrUploadIfAbsent(getAbsolutePath(), zipEntryContentSupplier);
-		}	
+		}
+		
+		public void destroy() {
+			this.absolutePath = null;
+			this.name = null;
+			this.archive = null;
+			this.cleanedName = null;
+			this.zipEntryContentSupplier = null;
+			this.zipMemoryContainer = null;
+		}
 	}
 }

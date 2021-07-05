@@ -1,6 +1,8 @@
 package org.burningwave.core;
 
 
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
+
 import java.io.Closeable;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
@@ -15,7 +17,9 @@ import org.burningwave.core.io.FileSystemItem;
 import org.burningwave.core.service.Service;
 import org.junit.jupiter.api.Test;
 
+@SuppressWarnings("unused")
 public class ByteCodeHunterTest extends BaseTest {
+	
 	
 	@Test
 	public void findAllSubtypeOfTestOne() {
@@ -25,13 +29,11 @@ public class ByteCodeHunterTest extends BaseTest {
 				SearchConfig.forPaths(
 					componentSupplier.getPathHelper().getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
 				).by(
-					ClassCriteria.create().byClasses((uploadedClasses, targetClass) ->
+					ClassCriteria.create().byClassesThatMatch((uploadedClasses, targetClass) ->
 						uploadedClasses.get(Closeable.class).isAssignableFrom(targetClass)
 					).useClasses(
 						Closeable.class
 					)
-				).deleteFoundItemsOnClose(
-					false
 				).withScanFileCriteria(
 					FileSystemItem.Criteria.forClassTypeFiles(
 						FileSystemItem.CheckingOption.FOR_NAME
@@ -66,7 +68,7 @@ public class ByteCodeHunterTest extends BaseTest {
 		CacheableSearchConfig searchConfig = SearchConfig.forPaths(
 			componentSupplier.getPathHelper().getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip/ESC-Lib.ear")
 		).by(
-			ClassCriteria.create().byClasses((uploadedClasses, targetClass) -> 
+			ClassCriteria.create().byClassesThatMatch((uploadedClasses, targetClass) -> 
 				uploadedClasses.get(Closeable.class).isAssignableFrom(targetClass)
 			).useClasses(
 				Closeable.class
@@ -95,7 +97,7 @@ public class ByteCodeHunterTest extends BaseTest {
 		CacheableSearchConfig searchConfig = SearchConfig.forPaths(
 			componentSupplier.getPathHelper().getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
 		).by(
-			ClassCriteria.create().byClasses((uploadedClasses, targetClass) -> 
+			ClassCriteria.create().byClassesThatMatch((uploadedClasses, targetClass) -> 
 				uploadedClasses.get(Closeable.class).isAssignableFrom(targetClass)
 			).useClasses(
 				Closeable.class
@@ -118,7 +120,7 @@ public class ByteCodeHunterTest extends BaseTest {
 		SearchConfig searchConfig = SearchConfig.withoutUsingCache().addPaths(
 			componentSupplier.getPathHelper().getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
 		).by(
-			ClassCriteria.create().byClasses((uploadedClasses, targetClass) -> 
+			ClassCriteria.create().byClassesThatMatch((uploadedClasses, targetClass) -> 
 				uploadedClasses.get(Closeable.class).isAssignableFrom(targetClass)
 			).useClasses(
 				Closeable.class
@@ -139,13 +141,11 @@ public class ByteCodeHunterTest extends BaseTest {
 		CacheableSearchConfig searchConfig = SearchConfig.forPaths(
 			componentSupplier.getPathHelper().getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
 		).by(
-			ClassCriteria.create().byClasses((uploadedClasses, targetClass) -> 
+			ClassCriteria.create().byClassesThatMatch((uploadedClasses, targetClass) -> 
 				uploadedClasses.get(Closeable.class).isAssignableFrom(targetClass)
 			).useClasses(
 				Closeable.class
 			)
-		).deleteFoundItemsOnClose(
-			false
 		);
 		Stream.of(
 			CompletableFuture.runAsync(() -> 
@@ -183,8 +183,13 @@ public class ByteCodeHunterTest extends BaseTest {
 	
 	@Test
 	public void findAllWithByteCodeEqualsAndUseDuplicatedPathsTestOne() {
+//		Collection<String> disabledLoggers = GlobalProperties.resolveStringValues("managed-logger.repository.logging.warn.disabled-for", ";");
+//		disabledLoggers.remove(PathScannerClassLoader.class.getName());
+//		GlobalProperties.put("managed-logger.repository.logging.warn.disabled-for", String.join(";", disabledLoggers));
 		findAllSubtypeOfTestOne();
 		findAllWithByteCodeEqualsTestOne();
+//		disabledLoggers.add(PathScannerClassLoader.class.getName());
+//		GlobalProperties.put("managed-logger.repository.logging.warn.disabled-for", String.join(";", disabledLoggers));
 	}
 	
 	@Test
@@ -197,7 +202,7 @@ public class ByteCodeHunterTest extends BaseTest {
 				SearchConfig.forPaths(
 					componentSupplier.getPathHelper().getPath((path) -> path.endsWith("target/classes"))
 				).by(
-					ClassCriteria.create().allThat((targetClass) -> 
+					ClassCriteria.create().allThoseThatMatch((targetClass) -> 
 						Object.class.isAssignableFrom(targetClass)
 					)
 				)
@@ -207,6 +212,6 @@ public class ByteCodeHunterTest extends BaseTest {
 				return result.getClasses();
 			}
 		);
-		logDebug("Items total size: " + bytesWrapper.get() + " bytes");
+		ManagedLoggersRepository.logDebug(getClass()::getName, "Items total size: " + bytesWrapper.get() + " bytes");
 	}
 }

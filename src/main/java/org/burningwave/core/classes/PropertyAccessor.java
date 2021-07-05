@@ -103,7 +103,7 @@ public abstract class PropertyAccessor implements Component {
 			}
 			message = message.substring(0, message.length() - 1);
 			if (exceptions.size() == propertyRetrievers.size()) {
-				throw Throwables.toRuntimeException(message.toString());
+				Throwables.throwException(message.toString());
 			} else {
 				//logDebug("Warning: " + message);
 			}
@@ -149,7 +149,7 @@ public abstract class PropertyAccessor implements Component {
 			} else if (Map.class.isAssignableFrom(property.getClass())) {
 				propertyRetriever = () -> ((Map<?, ?>)property).get(index);
 			} else {
-				throw Throwables.toRuntimeException("indexed property " + property + " of type " + property.getClass() + " is not supporterd");
+				Throwables.throwException("indexed property {} of type {} is not supporterd", property, property.getClass());
 			}
 			return retrieveFromIndexedProperty(
 					propertyRetriever.get(), 
@@ -189,7 +189,7 @@ public abstract class PropertyAccessor implements Component {
 		} else if (Map.class.isAssignableFrom(property.getClass())) {
 			((Map<String, T>)property).put(index, (T)value);
 		} else {
-			throw Throwables.toRuntimeException("indexed property " + property + " of type " + property.getClass() + " is not supporterd");
+			Throwables.throwException("indexed property {} of type {} is not supporterd", property, property.getClass());
 		}
 	}
 
@@ -231,6 +231,7 @@ public abstract class PropertyAccessor implements Component {
 			return new ByFieldOrByMethod();
 		}
 
+		@Override
 		List<ThrowingBiFunction<Object, String, Object, Throwable>> getPropertyRetrievers() {
 			List<ThrowingBiFunction<Object, String, Object, Throwable>> propertyRetrievers = new ArrayList<>();
 			propertyRetrievers.add((object, propertyName) -> retrievePropertyByField(object, propertyName));
@@ -238,6 +239,7 @@ public abstract class PropertyAccessor implements Component {
 			return propertyRetrievers;
 		}
 
+		@Override
 		List<ThrowingFunction<Object[], Boolean, Throwable>> getPropertySetters() {
 			List<ThrowingFunction<Object[], Boolean, Throwable>> propertySetters  = new ArrayList<>();
 			propertySetters.add(objects -> setPropertyByField(objects[0], (String)objects[1], objects[2]));
@@ -257,6 +259,7 @@ public abstract class PropertyAccessor implements Component {
 			return new ByMethodOrByField();
 		}
 
+		@Override
 		List<ThrowingBiFunction<Object, String, Object, Throwable>> getPropertyRetrievers() {
 			List<ThrowingBiFunction<Object, String, Object, Throwable>> propertyRetrievers = new ArrayList<>();
 			propertyRetrievers.add((object, propertyName) -> retrievePropertyByGetterMethod(object, propertyName));
@@ -264,6 +267,7 @@ public abstract class PropertyAccessor implements Component {
 			return propertyRetrievers;
 		}
 
+		@Override
 		List<ThrowingFunction<Object[], Boolean, Throwable>> getPropertySetters() {
 			List<ThrowingFunction<Object[], Boolean, Throwable>> propertySetters  = new ArrayList<>();
 			propertySetters.add(objects -> setPropertyByMethod(objects[0], (String)objects[1], objects[2]));

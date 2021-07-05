@@ -29,7 +29,7 @@
 package org.burningwave.core.io;
 
 
-import static org.burningwave.core.assembler.StaticComponentContainer.ByteBufferDelegate;
+import static org.burningwave.core.assembler.StaticComponentContainer.ByteBufferHandler;
 import static org.burningwave.core.assembler.StaticComponentContainer.Streams;
 
 import java.io.InputStream;
@@ -47,17 +47,17 @@ public class ByteBufferOutputStream extends OutputStream {
     private Boolean closeable;
     
     public ByteBufferOutputStream() {
-    	this(Streams.defaultBufferSize);
+    	this(((StreamsImpl)Streams).defaultBufferSize);
     }
     
     public ByteBufferOutputStream(boolean closeable) {
-    	this(Streams.defaultBufferSize, closeable);
+    	this(((StreamsImpl)Streams).defaultBufferSize, closeable);
     }
 
     public ByteBufferOutputStream(ByteBuffer buffer, boolean closeable) {
         this.buffer = buffer;
-        this.initialPosition = ByteBufferDelegate.position(buffer);
-        this.initialCapacity = ByteBufferDelegate.capacity(buffer);
+        this.initialPosition = ByteBufferHandler.position(buffer);
+        this.initialCapacity = ByteBufferHandler.capacity(buffer);
         this.closeable = closeable;
     }
     
@@ -66,19 +66,21 @@ public class ByteBufferOutputStream extends OutputStream {
     }
 
     public ByteBufferOutputStream(int initialCapacity, boolean closeable) {
-        this(Streams.defaultByteBufferAllocationMode.apply(initialCapacity), closeable);
+        this(((StreamsImpl)Streams).defaultByteBufferAllocator.apply(initialCapacity), closeable);
     }
     
     public void markAsCloseable(boolean closeable) {
     	this.closeable = closeable;
     }
     
-    public void write(int b) {
+    @Override
+	public void write(int b) {
         ensureRemaining(1);
         buffer.put((byte) b);
     }
 
-    public void write(byte[] bytes, int off, int len) {
+    @Override
+	public void write(byte[] bytes, int off, int len) {
         ensureRemaining(len);
         buffer.put(bytes, off, len);
     }
@@ -89,20 +91,20 @@ public class ByteBufferOutputStream extends OutputStream {
     }
 
     public int position() {
-        return ByteBufferDelegate.position(buffer);
+        return ByteBufferHandler.position(buffer);
     }
 
     public int remaining() {
-        return ByteBufferDelegate.remaining(buffer);
+        return ByteBufferHandler.remaining(buffer);
     }
 
     public int limit() {
-        return ByteBufferDelegate.limit(buffer);
+        return ByteBufferHandler.limit(buffer);
     }
 
     public void position(int position) {
-        ensureRemaining(position - ByteBufferDelegate.position(buffer));
-        ByteBufferDelegate.position(buffer, position);
+        ensureRemaining(position - ByteBufferHandler.position(buffer));
+        ByteBufferHandler.position(buffer, position);
     }
 
     public int initialCapacity() {
@@ -115,13 +117,13 @@ public class ByteBufferOutputStream extends OutputStream {
     }
 
     private void expandBuffer(int remainingRequired) {
-        int expandSize = Math.max((int) (ByteBufferDelegate.limit(buffer) * REALLOCATION_FACTOR), ByteBufferDelegate.position(buffer) + remainingRequired);
-        ByteBuffer temp = Streams.defaultByteBufferAllocationMode.apply(expandSize);
+        int expandSize = Math.max((int) (ByteBufferHandler.limit(buffer) * REALLOCATION_FACTOR), ByteBufferHandler.position(buffer) + remainingRequired);
+        ByteBuffer temp = ((StreamsImpl)Streams).defaultByteBufferAllocator.apply(expandSize);
         int limit = limit();
-        ByteBufferDelegate.flip(buffer);
+        ByteBufferHandler.flip(buffer);
         temp.put(buffer);
-        ByteBufferDelegate.limit(buffer, limit);
-        ByteBufferDelegate.position(buffer, initialPosition);
+        ByteBufferHandler.limit(buffer, limit);
+        ByteBufferHandler.position(buffer, initialPosition);
         buffer = temp;
     }
     

@@ -28,211 +28,88 @@
  */
 package org.burningwave.core.classes;
 
-import static org.burningwave.core.assembler.StaticComponentContainer.ClassLoaders;
-import static org.burningwave.core.assembler.StaticComponentContainer.Constructors;
-import static org.burningwave.core.assembler.StaticComponentContainer.IterableObjectHelper;
-import static org.burningwave.core.assembler.StaticComponentContainer.Strings;
-
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import org.burningwave.core.Component;
 import org.burningwave.core.Executable;
-import org.burningwave.core.function.ThrowingRunnable;
-import org.burningwave.core.function.ThrowingSupplier;
+import org.burningwave.core.assembler.ComponentSupplier;
+import org.burningwave.core.concurrent.QueuedTasksExecutor;
 import org.burningwave.core.io.FileSystemItem;
 import org.burningwave.core.io.PathHelper;
 import org.burningwave.core.iterable.Properties;
 
-@SuppressWarnings("unchecked")
-public class CodeExecutor implements Component {
-	static final String PROPERTIES_FILE_CODE_EXECUTOR_IMPORTS_KEY_SUFFIX = ".imports";
-	static final String PROPERTIES_FILE_CODE_EXECUTOR_NAME_KEY_SUFFIX = ".name";
-	static final String PROPERTIES_FILE_CODE_EXECUTOR_SIMPLE_NAME_KEY_SUFFIX = ".simple-name";
+
+public interface CodeExecutor {
 	
-	private ClassFactory classFactory;
-	private PathHelper pathHelper;
-	private Supplier<ClassFactory> classFactorySupplier;
-	private Properties config;
-	
-	private CodeExecutor(
-		Supplier<ClassFactory> classFactorySupplier,
-		PathHelper pathHelper,
-		Properties config
-	) {	
-		this.classFactorySupplier = classFactorySupplier;
-		this.pathHelper = pathHelper;
-		this.config = config;
-		listenTo(config);
-	}
+	public static class Configuration {
 		
+		public static class Key {
+			public static final String COMMON_IMPORTS = "code-executor.common.imports";
+			public static final String ADDITIONAL_COMMON_IMPORTS = "code-executor.common.additional-imports";
+			public static final String PROPERTIES_FILE_IMPORTS_SUFFIX = ".imports";
+			public static final String PROPERTIES_FILE_SUPPLIER_KEY = "supplier";
+			public static final String PROPERTIES_FILE_EXECUTOR_KEY = "executor";
+			public static final String PROPERTIES_FILE_SUPPLIER_IMPORTS_SUFFIX = "." + PROPERTIES_FILE_SUPPLIER_KEY + PROPERTIES_FILE_IMPORTS_SUFFIX;
+			public static final String PROPERTIES_FILE_EXECUTOR_IMPORTS_SUFFIX = "." + PROPERTIES_FILE_EXECUTOR_KEY + PROPERTIES_FILE_IMPORTS_SUFFIX;
+			public static final String PROPERTIES_FILE_CLASS_NAME_SUFFIX = ".name";
+			public static final String PROPERTIES_FILE_SUPPLIER_NAME_SUFFIX = "." + PROPERTIES_FILE_SUPPLIER_KEY + PROPERTIES_FILE_CLASS_NAME_SUFFIX;
+			public static final String PROPERTIES_FILE_EXECUTOR_NAME_SUFFIX = "." + PROPERTIES_FILE_EXECUTOR_KEY + PROPERTIES_FILE_CLASS_NAME_SUFFIX;
+			public static final String PROPERTIES_FILE_CLASS_SIMPLE_NAME_SUFFIX = ".simple-name";
+			public static final String PROPERTIES_FILE_SUPPLIER_SIMPLE_NAME_SUFFIX = "." + PROPERTIES_FILE_SUPPLIER_KEY + PROPERTIES_FILE_CLASS_SIMPLE_NAME_SUFFIX;
+			public static final String PROPERTIES_FILE_EXECUTOR_SIMPLE_NAME_SUFFIX = "." + PROPERTIES_FILE_EXECUTOR_KEY + PROPERTIES_FILE_CLASS_SIMPLE_NAME_SUFFIX;
+			
+		}
+		
+		public static class Value {
+			public static final String CODE_LINE_SEPARATOR = ";";
+		}
+		
+		public final static Map<String, Object> DEFAULT_VALUES;
+		
+		static {
+			Map<String, Object> defaultValues = new HashMap<>();
+
+			defaultValues.put(Key.COMMON_IMPORTS,
+				"static " + org.burningwave.core.assembler.StaticComponentContainer.class.getName() + ".BackgroundExecutor" + Value.CODE_LINE_SEPARATOR +
+				"static " + org.burningwave.core.assembler.StaticComponentContainer.class.getName() + ".ManagedLoggersRepository" + Value.CODE_LINE_SEPARATOR +
+				"${"+ Key.ADDITIONAL_COMMON_IMPORTS +  "}" + Value.CODE_LINE_SEPARATOR +
+ 				ComponentSupplier.class.getName() + Value.CODE_LINE_SEPARATOR +
+				Function.class.getName() + Value.CODE_LINE_SEPARATOR +
+				FileSystemItem.class.getName() + Value.CODE_LINE_SEPARATOR +
+				PathHelper.class.getName() + Value.CODE_LINE_SEPARATOR +
+				QueuedTasksExecutor.ProducerTask.class.getName() + Value.CODE_LINE_SEPARATOR +
+				QueuedTasksExecutor.Task.class.getName() + Value.CODE_LINE_SEPARATOR +
+				Supplier.class.getName() + Value.CODE_LINE_SEPARATOR
+			);
+			
+			DEFAULT_VALUES = Collections.unmodifiableMap(defaultValues);
+		}
+		
+	}
+	
 	public static CodeExecutor create(
 		Supplier<ClassFactory> classFactorySupplier,
 		PathHelper pathHelper,
 		Properties config
 	) {
-		return new CodeExecutor(
+		return new CodeExecutorImpl(
 			classFactorySupplier,
 			pathHelper,
 			config
 		);
 	}
 	
-	private ClassFactory getClassFactory() {
-		return classFactory != null? classFactory :
-			(classFactory = classFactorySupplier.get());
-	}
-	
-	public <T> T executeProperty(String propertyName, Object... params) {
-		return execute(ExecuteConfig.ForProperties.forProperty(propertyName).withParameter(params));
-	}
-	
-	public <E extends ExecuteConfig<E>, T> T execute(ExecuteConfig.ForProperties config) {
-		java.util.Properties properties = config.getProperties();
-		if (properties == null) {
-			if (config.getFilePath() == null) {
-				properties = this.config; 
-			} else {
-				Properties tempProperties = new Properties();
-				if (config.isAbsoluteFilePath()) {
-					ThrowingRunnable.run(() -> 
-						tempProperties.load(FileSystemItem.ofPath(config.getFilePath()).toInputStream())
-					);
-				} else {
-					ThrowingRunnable.run(() ->
-						tempProperties.load(pathHelper.getResourceAsStream(config.getFilePath()))
-					);
-				}
-				properties = tempProperties;
-			}
-			
-		}
-		
-		BodySourceGenerator body = config.getBody();
-		if (config.getParams() != null && config.getParams().length > 0) {
-			for (Object param : config.getParams()) {
-				body.useType(param.getClass());
-			}
-		}
-		String importFromConfig = IterableObjectHelper.resolveStringValue(properties, config.getPropertyName() + PROPERTIES_FILE_CODE_EXECUTOR_IMPORTS_KEY_SUFFIX, null, true, config.getDefaultValues());
-		if (Strings.isNotEmpty(importFromConfig)) {
-			Arrays.stream(importFromConfig.replaceAll(";{2,}", ";").split(";")).forEach(imp -> {
-				if (Strings.isNotEmpty(imp)) {
-					body.useType(imp);
-				}
-			});
-		}
-		String executorName = IterableObjectHelper.resolveStringValue(properties, config.getPropertyName() + PROPERTIES_FILE_CODE_EXECUTOR_NAME_KEY_SUFFIX, null, true, config.getDefaultValues());
-		String executorSimpleName = IterableObjectHelper.resolveStringValue(properties, config.getPropertyName() + PROPERTIES_FILE_CODE_EXECUTOR_SIMPLE_NAME_KEY_SUFFIX, null, true, config.getDefaultValues());
+	public <T> T executeProperty(String propertyName, Object... params);
 
-		if (Strings.isNotEmpty(executorName)) {
-			config.setName(executorName);
-		} else if (Strings.isNotEmpty(executorSimpleName)) {
-			config.setSimpleName(executorSimpleName);
-		}
-		String code = IterableObjectHelper.resolveStringValue(properties, config.getPropertyName(), null, true, config.getDefaultValues());
-		if (code.contains(";")) {
-			if (config.isIndentCodeActive()) {
-				code = code.replaceAll(";{2,}", ";");
-				for (String codeRow : code.split(";")) {
-					if (Strings.isNotEmpty(codeRow)) {
-						body.addCodeRow(codeRow + ";");
-					}
-				}
-			} else {
-				body.addCodeRow(code);
-			}
-		} else {
-			body.addCodeRow(code.contains("return")?
-				code:
-				"return (T)" + code + ";"
-			);
-		}
+	public <E extends ExecuteConfig<E>, T> T execute(ExecuteConfig.ForProperties config);
 
-		return execute(
-			(E)config
-		);
-	}		
-	
-	public <E extends ExecuteConfig<E>, T> T execute(BodySourceGenerator body) {
-		return execute((E)ExecuteConfig.forBodySourceGenerator(body));
-	}
-	
-	public <E extends ExecuteConfig<E>, T> T execute(
-		E config
-	) {	
-		if (config.getClassLoader() == null) {
-			return ThrowingSupplier.get(() -> {
-				Object executeClient = new Object();
-				ClassLoader defaultClassLoader = null;
-				ClassLoader parentClassLoader = config.getParentClassLoader();
-				if (parentClassLoader == null && config.isUseDefaultClassLoaderAsParentIfParentClassLoaderIsNull()) {
-					parentClassLoader = defaultClassLoader = getClassFactory().getDefaultClassLoader(executeClient);
-				}
-				try (MemoryClassLoader memoryClassLoader = 
-					MemoryClassLoader.create(
-						parentClassLoader
-					)
-				) {
-					Class<? extends Executable> executableClass = loadOrBuildAndDefineExecutorSubType(
-						config.useClassLoader(memoryClassLoader)
-					);
-					Executable executor = Constructors.newInstanceDirectOf(executableClass);
-					T retrievedElement = executor.execute(config.getParams());
-					if (defaultClassLoader instanceof MemoryClassLoader) {
-						((MemoryClassLoader)defaultClassLoader).unregister(executeClient, true);
-					}
-					return retrievedElement;
-				}
-			});
-		} else {
-			return ThrowingSupplier.get(() -> {
-				Object executeClient = new Object();
-				ClassLoader defaultClassLoader = null;
-				Function<Boolean, ClassLoader> parentClassLoaderRestorer = null;
-				ClassLoader parentClassLoader = config.getParentClassLoader();
-				if (parentClassLoader == null && config.isUseDefaultClassLoaderAsParentIfParentClassLoaderIsNull()) {
-					parentClassLoader = defaultClassLoader = getClassFactory().getDefaultClassLoader(executeClient);
-				}
-				if (parentClassLoader != null) {
-					parentClassLoaderRestorer = ClassLoaders.setAsParent(config.getClassLoader(), parentClassLoader, false);
-				}
-				Class<? extends Executable> executableClass = loadOrBuildAndDefineExecutorSubType(
-					config
-				);
-				Executable executor = Constructors.newInstanceDirectOf(executableClass);
-				T retrievedElement = executor.execute(config.getParams());
-				if (parentClassLoaderRestorer != null) {
-					parentClassLoaderRestorer.apply(true);
-				}
-				if (defaultClassLoader instanceof MemoryClassLoader) {
-					((MemoryClassLoader)defaultClassLoader).unregister(executeClient, true);
-				}
-				return retrievedElement;
-			});
-		}
-	}
-	
+	public <E extends ExecuteConfig<E>, T> T execute(BodySourceGenerator body);
+
+	public <E extends ExecuteConfig<E>, T> T execute(E config);
+
 	public <E extends LoadOrBuildAndDefineConfig.ForCodeExecutorAbst<E>, T extends Executable> Class<T> loadOrBuildAndDefineExecutorSubType(
-		E config
-	) {	
-		ClassFactory.ClassRetriever classRetriever = getClassFactory().loadOrBuildAndDefine(
-			config
-		);
-		Class<T> executableClass = (Class<T>) classRetriever.get(
-			config.getExecutorName()
-		);
-		classRetriever.close();
-		return executableClass;
-	}
-	
-	@Override
-	public void close() {
-		unregister(config);
-		classFactory = null;
-		pathHelper = null;
-		classFactorySupplier = null;
-		config = null;
-	}
+			E config);
 }

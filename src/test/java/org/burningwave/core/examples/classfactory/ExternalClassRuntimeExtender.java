@@ -34,7 +34,7 @@ public class ExternalClassRuntimeExtender {
 					VariableSourceGenerator.create(TypeDeclarationSourceGenerator.create(InputStream.class), "inputStream")
 				).addThrowable(
 					TypeDeclarationSourceGenerator.create("SOAPException")				
-				).addBodyCodeRow("super(parentSoapMsg, inputStream);")
+				).addBodyCodeLine("super(parentSoapMsg, inputStream);")
 			)
 		).addImport(
 			"org.apache.axis2.saaj.SOAPPartImpl",
@@ -49,7 +49,7 @@ public class ExternalClassRuntimeExtender {
 			//The difference between this method and .setClassRepository is that the method .addClassRepository will add 
 			//paths to the configured defaults paths, instead the method .setClassRepository will replace the configured 
 			//defaults paths and the subsequent calls to method .addClassRepository will add paths to the replacement paths
-			.addClassPaths(
+			.addClassRepository(
 				pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
 			)
 		);

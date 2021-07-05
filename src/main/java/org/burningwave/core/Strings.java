@@ -28,20 +28,25 @@
  */
 package org.burningwave.core;
 
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
+
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
-import org.burningwave.core.function.ThrowingSupplier;
+import org.burningwave.core.function.Executor;
 
-public class Strings implements Component {
+public class Strings implements ManagedLogger {
 	
 	public final Pattern PLACE_HOLDER_NAME_EXTRACTOR_PATTERN = Pattern.compile("\\$\\{([\\w\\d\\.\\:\\-]*)\\}");
 	public final Pattern PLACE_HOLDER_EXTRACTOR_PATTERN = Pattern.compile("(\\$\\{[\\w\\d\\.\\:\\-]*\\})");
@@ -146,7 +151,7 @@ public class Strings implements Component {
 	}	
 	
 	public String replace(String text, Map<String, String> params) {
-		AtomicReference<String> template = new AtomicReference<String>(text);
+		AtomicReference<String> template = new AtomicReference<>(text);
 		params.forEach((key, value) -> 
 			template.set(
 				template.get().replaceAll(
@@ -169,19 +174,68 @@ public class Strings implements Component {
 				try {
 					List<String> foundString = null;
 					if ((foundString = found.get(i)) == null) {
-						foundString = new ArrayList<String>();
+						foundString = new ArrayList<>();
 						found.put(i, foundString);
 					}					
 					foundString.add(matcher.group(i));
 				} catch (IndexOutOfBoundsException exc) {
-					logDebug("group " + i + " not found on string \"" + target + "\" using pattern " + pattern.pattern());
+					ManagedLoggersRepository.logInfo(getClass()::getName, "group " + i + " not found on string \"" + target + "\" using pattern " + pattern.pattern());
 				}
 			}
 		}
 		return found;
 	}
 	
+	public String compile(String message, Object... arguments) {
+		for (Object obj : arguments) {
+			message = message.replaceFirst("\\{\\}", Objects.isNull(obj) ? "null" : clear(obj.toString()));
+		}
+		return message;
+	}
 	
+	private String clear(String text) {
+		return text
+		.replace("\\", "\\\\\\")
+		.replace("{", "\\{")
+		.replace("}", "\\}")
+		.replace("(", "\\(")
+		.replace(")", "\\)")
+		.replace(".", "\\.")
+		.replace("$", "\\$");
+	}
+	
+    public String from(StackTraceElement[] stackTrace) {
+        return from(stackTrace, '\t', 1);
+    }
+    
+    public String from(StackTraceElement[] stackTrace, int marginCount) {
+        return from(stackTrace, '\t', marginCount);
+    }
+    
+    public String from(StackTraceElement[] stackTrace, char marginChar, int marginCount) {
+    	return from(Arrays.asList(stackTrace), marginChar, marginCount);
+    }
+    
+    public String from(List<StackTraceElement> stackTrace) {
+    	return from(stackTrace, '\t', 1);
+    }
+    
+    public String from(List<StackTraceElement> stackTrace, int marginCount) {
+    	return from(stackTrace, '\t', marginCount);
+    }
+    
+    public String from(List<StackTraceElement> stackTrace, char marginChar, int marginCount) {
+    	if (stackTrace.isEmpty()) {
+    		return "";
+    	}
+    	String margin = new String(new char[marginCount]).replace('\0', marginChar);
+    	return "\n" + margin + "at " + String.join("\n" + margin + "at ", stackTrace.stream().map(sTE -> sTE.toString()).collect(Collectors.toList()));
+    }
+	
+	public String formatMessage(Throwable exc) {
+		return exc.toString() + ": " + exc.getMessage();
+	}
+    
 	public static class Paths {
 		Function<String, String> pathCleaner;
 		Function<String, String> uRLPathConverter;
@@ -219,6 +273,27 @@ public class Strings implements Component {
 			return pathCleaner.apply(path);
 		}
 		
+		public String toSquaredPath(String absolutePath, boolean isFolder) {
+			String squaredPath = null;
+			String root = absolutePath.indexOf("/") > 0?
+				absolutePath.substring(0, absolutePath.indexOf(":")) :
+				"root";
+			if (absolutePath.chars().filter(ch -> ch == '/').count() > 1) {
+				if (isFolder) {
+					squaredPath = absolutePath.substring(absolutePath.indexOf("/")).replaceFirst("\\/", "\\[").replace("/", "][") + "]";
+				} else {
+					squaredPath = absolutePath.substring(absolutePath.indexOf("/")).replaceFirst("\\/", "\\[").replace("/", "][");
+					squaredPath = squaredPath.substring(0, squaredPath.lastIndexOf("][") + 1) + squaredPath.substring(squaredPath.lastIndexOf("][") +2);
+				}
+			} else {
+				squaredPath = absolutePath.substring(absolutePath.indexOf("/") + 1);
+				if (isFolder) {
+					squaredPath = "[" + squaredPath + "]";
+				}
+			}
+			return "[" + root + "]" + squaredPath;
+		}
+		
 		public String normalizeAndClean(String path) {
 			if (path.contains("..") ||
 				path.contains(".\\") ||
@@ -248,7 +323,7 @@ public class Strings implements Component {
 		}
 		
 		private String convertURLPathToAbsolutePath0(String inputURLPath) {
-			String absolutePath = ThrowingSupplier.get(() ->
+			String absolutePath = Executor.get(() ->
 				URLDecoder.decode(
 					inputURLPath, StandardCharsets.UTF_8.name()
 				)
@@ -264,15 +339,18 @@ public class Strings implements Component {
 			if (absolutePath.startsWith("/")) {
 				absolutePath = absolutePath.substring(1);
 			}
+			
+			absolutePath = absolutePath.replaceAll("\\.(.*?)!\\/", "\\.$1\\/");
+			
 			if (absolutePath.endsWith("/")) {
 				absolutePath = absolutePath.substring(0, absolutePath.length() - 1);
 			}
 			
-			return absolutePath.replaceAll("\\.(.*?)!\\/", "\\.$1\\/");
+			return absolutePath;
 		}
 		
 		private String convertURLPathToAbsolutePath1(String inputURLPath) {
-			String absolutePath = ThrowingSupplier.get(() ->
+			String absolutePath = Executor.get(() ->
 				URLDecoder.decode(
 					inputURLPath, StandardCharsets.UTF_8.name()
 				)
@@ -285,9 +363,7 @@ public class Strings implements Component {
 				"!"
 			);
 			
-			if (absolutePath.contains(".jar!/")) {
-				absolutePath = absolutePath.replace(".jar!/", ".jar/");
-			}
+			absolutePath = absolutePath.replaceAll("\\.(.*?)!\\/", "\\.$1\\/");
 			return absolutePath;
 		}
 		
@@ -314,4 +390,5 @@ public class Strings implements Component {
 	public String placeHolderToRegEx(String value) {
 		return value.replace("$", "\\$").replace(".", "\\.").replace("{", "\\{").replace("}", "\\}");
 	}
+
 }

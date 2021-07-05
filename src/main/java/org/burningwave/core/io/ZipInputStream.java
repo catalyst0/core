@@ -28,10 +28,12 @@
  */
 package org.burningwave.core.io;
 
-import static org.burningwave.core.assembler.StaticComponentContainer.ByteBufferDelegate;
+import static org.burningwave.core.assembler.StaticComponentContainer.ByteBufferHandler;
 import static org.burningwave.core.assembler.StaticComponentContainer.Cache;
 import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
+import static org.burningwave.core.assembler.StaticComponentContainer.Paths;
 import static org.burningwave.core.assembler.StaticComponentContainer.Streams;
+import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -44,12 +46,11 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.zip.ZipException;
 
-import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
-import org.burningwave.core.Component;
-import org.burningwave.core.function.ThrowingRunnable;
+import org.burningwave.core.function.Executor;
 import org.burningwave.core.io.ZipInputStream.Entry.Attached;
 
-class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZipContainer, Component {
+@SuppressWarnings("unchecked")
+class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZipContainer {
 	String absolutePath;
 	String conventionedAbsolutePath;
 	IterableZipContainer parent;
@@ -80,6 +81,7 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 		return parent;
 	}
 	
+	@Override
 	public String getAbsolutePath() {
 		return absolutePath;
 	}
@@ -100,12 +102,13 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 						conventionedAbsolutePath = absolutePath;
 					}
 				}
-				conventionedAbsolutePath += IterableZipContainer.ZIP_PATH_SEPARATOR;
+				conventionedAbsolutePath += IterableZipContainer.PATH_SUFFIX;
 			}
 		}
 		return conventionedAbsolutePath;
 	}
 	
+	@Override
 	public ByteBuffer toByteBuffer() {
 		return byteBufferInputStream.toByteBuffer();
 	}
@@ -121,18 +124,18 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 	
 	
 	@Override
-	@SuppressWarnings("unchecked")
 	public Entry.Attached getNextEntry() {
 		return (Attached)getNextEntry((zEntry) -> false);
 	}
 	
+	@Override
 	public IterableZipContainer.Entry getNextEntry(Predicate<IterableZipContainer.Entry> loadZipEntryData) {
-		ThrowingRunnable.run(() -> {
+		Executor.run(() -> {
 			try {
 				currentZipEntry = (Entry.Attached)super.getNextEntry();
 			} catch (ZipException exc) {
 				String message = exc.getMessage();
-				logWarn("Could not open zipEntry of {}: {}", absolutePath, message);
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Could not open zipEntry of {}: {}", absolutePath, message);
 			}
 		});
 		if (currentZipEntry != null && loadZipEntryData.test(currentZipEntry)) {
@@ -153,6 +156,7 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 		);
 	}
 	
+	@Override
 	public IterableZipContainer.Entry getCurrentZipEntry() {
 		return currentZipEntry;
 	}
@@ -167,7 +171,7 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 		try {
 			super.closeEntry();
 		} catch (IOException exc) {
-			logWarn("Exception occurred while closing zipEntry {}: {}", Optional.ofNullable(getCurrentZipEntry()).map((zipEntry) -> zipEntry.getAbsolutePath()).orElseGet(() -> "null"), exc.getMessage());
+			ManagedLoggersRepository.logWarn(getClass()::getName, "Exception occurred while closing zipEntry {}: {}", Optional.ofNullable(getCurrentZipEntry()).map((zipEntry) -> zipEntry.getAbsolutePath()).orElseGet(() -> "null"), exc.getMessage());
 		}
 		if (currentZipEntry != null) {
 			currentZipEntry.close();
@@ -180,7 +184,7 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 		closeEntry();
 		parent = null;
 		absolutePath = null;
-		ThrowingRunnable.run(() -> super.close());
+		Executor.run(() -> super.close());
 		this.byteBufferInputStream = null;
 	}
 		
@@ -188,7 +192,10 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 	
 		static class Attached extends java.util.zip.ZipEntry implements Entry {
 			private ZipInputStream zipInputStream;
-	
+			private String absolutePath;
+			private String cleanedName;
+			private Boolean archive;
+			
 			public Attached(Entry.Attached e, ZipInputStream zIS) {
 				super(e);
 				this.zipInputStream = zIS;
@@ -199,14 +206,44 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 				this.zipInputStream = zIS;
 			}
 			
-			@SuppressWarnings("unchecked")
+			@Override
+			public boolean isArchive() {
+				if (archive != null) {
+					return archive;
+				}
+				ByteBuffer content = toByteBuffer();
+				return archive = content != null ? Streams.isArchive(content) : false;
+			}
+			
+			@Override
 			public ZipInputStream getParentContainer() {
 				return zipInputStream;
 			}
 			
+			@Override
+			public String getCleanedName() {
+				if (cleanedName != null) {
+					return cleanedName;
+				}
+				String cleanedName = super.getName();
+				if (!cleanedName.startsWith("/")) {
+					this.cleanedName = cleanedName;
+				} else {
+					if (!cleanedName.equals("/")) {
+						this.cleanedName =  cleanedName.substring(1, cleanedName.length());
+					} else {
+						this.cleanedName = "";
+					}
+				}
+				return this.cleanedName;
+			}
+			
+			@Override
 			public String getAbsolutePath() {
-				String name = getName();
-				return zipInputStream.getAbsolutePath() + "/" + (name.endsWith("/") ? name.substring(0, name.length() -1) : name);
+				if (absolutePath != null) {
+					return absolutePath;
+				}
+				return absolutePath = Paths.clean(zipInputStream.getAbsolutePath() + "/" + getName());
 			}
 			
 			private ByteBufferOutputStream createDataBytesContainer() {
@@ -222,7 +259,7 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 			public long getSize() {
 				long size = super.getSize();
 				if (size < 0) {
-					size = ByteBufferDelegate.limit(toByteBuffer());
+					size = ByteBufferHandler.limit(toByteBuffer());
 				}
 				return size;
 			}		
@@ -232,13 +269,13 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 				return Cache.pathForContents.getOrUploadIfAbsent(
 					getAbsolutePath(), () -> {
 						if (zipInputStream.getCurrentZipEntry() != this) {
-							throw Throwables.toRuntimeException(Attached.class.getSimpleName() + " and his ZipInputStream are not aligned");
+							Throwables.throwException("{} and his ZipInputStream are not aligned", Attached.class.getSimpleName());
 						}
 						try (ByteBufferOutputStream bBOS = createDataBytesContainer()) {
 							Streams.copy(zipInputStream, bBOS);
 						    return bBOS.toByteBuffer();
 						} catch (Throwable exc) {
-							ManagedLoggersRepository.logError(this.getClass(), "Could not load content of " + getName() + " of " + zipInputStream.getAbsolutePath(), exc);
+							ManagedLoggersRepository.logError(getClass()::getName, "Could not load content of {} of {}", exc, getName(), zipInputStream.getAbsolutePath());
 							return null;
 						}
 					}
@@ -246,6 +283,7 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 				
 			}		
 	
+			@Override
 			public ByteBuffer toByteBuffer() {
 				return loadContent();
 			}
@@ -258,17 +296,18 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 			
 			public void unzipToFolder(File folder) {
 				File destinationFilePath = new File(folder.getAbsolutePath(), this.getName());
+				int defaultBufferSize = ((StreamsImpl)Streams).defaultBufferSize;
 				destinationFilePath.getParentFile().mkdirs();
 				if (!this.isDirectory()) {
-					ThrowingRunnable.run(() -> {
+					Executor.run(() -> {
 						try (BufferedInputStream bis = new BufferedInputStream(this.toInputStream())) {
 							int byteTransferred = 0;
-							byte buffer[] = new byte[Streams.defaultBufferSize];
+							byte buffer[] = new byte[defaultBufferSize];
 							try (
 								FileOutputStream fos = FileOutputStream.create(destinationFilePath);
-								BufferedOutputStream bos = new BufferedOutputStream(fos, Streams.defaultBufferSize)
+								BufferedOutputStream bos = new BufferedOutputStream(fos, defaultBufferSize)
 							) {
-								while ((byteTransferred = bis.read(buffer, 0, Streams.defaultBufferSize)) != -1) {
+								while ((byteTransferred = bis.read(buffer, 0, defaultBufferSize)) != -1) {
 									bos.write(buffer, 0, byteTransferred);
 								}
 								bos.flush();
@@ -281,28 +320,40 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 			@Override
 			public void close() {
 				zipInputStream = null;
+				absolutePath = null;
+				cleanedName = null;
+				archive = null;
 			}
 		}
 	
 		public static class Detached implements Entry {
 			private String name;
+			private String cleanedName;
 			private String absolutePath;
-			private Boolean isDirectory;
 			private IterableZipContainer zipInputStream;
+			private Boolean archive;
 			
 			Detached(IterableZipContainer.Entry zipEntry) {
 				this.name = zipEntry.getName();
 				this.absolutePath = zipEntry.getAbsolutePath();
-				this.isDirectory = zipEntry.isDirectory();
 				this.zipInputStream = zipEntry.getParentContainer().duplicate();
-				
 			}
 			
-			@SuppressWarnings("unchecked")
+			@Override
+			public boolean isArchive() {
+				if (archive != null) {
+					return archive;
+				}
+				ByteBuffer content = toByteBuffer();
+				return archive = content != null ? Streams.isArchive(content) : false;
+			}
+			
+			@Override
 			public IterableZipContainer getParentContainer() {
 				return zipInputStream.duplicate();
 			}
 	
+			@Override
 			public ByteBuffer toByteBuffer() {
 				return Cache.pathForContents.getOrUploadIfAbsent(absolutePath, () -> {
 					try (IterableZipContainer zipInputStream = getParentContainer()) {
@@ -315,22 +366,44 @@ class ZipInputStream extends java.util.zip.ZipInputStream implements IterableZip
 				});			
 			}
 			
+			@Override
+			public String getCleanedName() {
+				if (cleanedName != null) {
+					return cleanedName;
+				}
+				String cleanedName = name;
+				if (!cleanedName.startsWith("/")) {
+					this.cleanedName = cleanedName;
+				} else {
+					if (!cleanedName.equals("/")) {
+						this.cleanedName =  cleanedName.substring(1, cleanedName.length());
+					} else {
+						this.cleanedName = "";
+					}
+				}
+				return this.cleanedName;
+			}
+			
+			@Override
 			public String getName() {
 				return name;
 			}
+			@Override
 			public String getAbsolutePath() {
 				return absolutePath;
 			}
 			
+			@Override
 			public boolean isDirectory() {
-				return isDirectory;
+				return name.endsWith("/");
 			}
 			
 			@Override
 			public void close() {
 				name = null;
+				archive = null;
+				cleanedName = null;
 				absolutePath = null;
-				isDirectory = null;
 				zipInputStream.close();
 				zipInputStream = null;
 			}

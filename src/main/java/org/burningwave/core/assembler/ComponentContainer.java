@@ -28,65 +28,108 @@
  */
 package org.burningwave.core.assembler;
 
+import static org.burningwave.core.assembler.StaticComponentContainer.BackgroundExecutor;
 import static org.burningwave.core.assembler.StaticComponentContainer.Cache;
+import static org.burningwave.core.assembler.StaticComponentContainer.ClassLoaders;
 import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
+import static org.burningwave.core.assembler.StaticComponentContainer.Fields;
 import static org.burningwave.core.assembler.StaticComponentContainer.GlobalProperties;
 import static org.burningwave.core.assembler.StaticComponentContainer.IterableObjectHelper;
 import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
 import static org.burningwave.core.assembler.StaticComponentContainer.Resources;
+import static org.burningwave.core.assembler.StaticComponentContainer.Synchronizer;
 import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
 
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.Collection;
-import java.util.Iterator;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import org.burningwave.core.Component;
 import org.burningwave.core.Executable;
+import org.burningwave.core.ManagedLogger;
 import org.burningwave.core.classes.ByteCodeHunter;
 import org.burningwave.core.classes.ClassFactory;
 import org.burningwave.core.classes.ClassHunter;
+import org.burningwave.core.classes.ClassPathHelper;
 import org.burningwave.core.classes.ClassPathHunter;
-import org.burningwave.core.classes.ClassPathScannerAbst;
-import org.burningwave.core.classes.ClassPathScannerWithCachingSupport;
+import org.burningwave.core.classes.ClassPathScanner;
 import org.burningwave.core.classes.CodeExecutor;
 import org.burningwave.core.classes.ExecuteConfig;
 import org.burningwave.core.classes.FunctionalInterfaceFactory;
 import org.burningwave.core.classes.JavaMemoryCompiler;
-import org.burningwave.core.classes.PathScannerClassLoader;
+import org.burningwave.core.classes.SearchResult;
+import org.burningwave.core.concurrent.QueuedTasksExecutor;
+import org.burningwave.core.function.ThrowingRunnable;
 import org.burningwave.core.io.FileSystemItem;
+import org.burningwave.core.io.FileSystemItem.Criteria;
 import org.burningwave.core.io.PathHelper;
 import org.burningwave.core.iterable.Properties;
 import org.burningwave.core.iterable.Properties.Event;
 
-@SuppressWarnings("unchecked")
-public class ComponentContainer implements ComponentSupplier {
+@SuppressWarnings({"unchecked", "resource"})
+public class ComponentContainer implements ComponentSupplier, Properties.Listener, ManagedLogger {
+	
+	public static class Configuration {
+		
+		public static class Key {
+			
+			public static final String AFTER_INIT = "component-container.after-init.operations";
+					
+		}
+		
+		public final static Map<String, Object> DEFAULT_VALUES;
+	
+		static {
+			Map<String, Object> defaultValues = new HashMap<>();
+
+			defaultValues.put(Configuration.Key.AFTER_INIT + CodeExecutor.Configuration.Key.PROPERTIES_FILE_IMPORTS_SUFFIX,
+				"${"+ CodeExecutor.Configuration.Key.COMMON_IMPORTS + "}" + CodeExecutor.Configuration.Value.CODE_LINE_SEPARATOR + 
+				"${"+ Configuration.Key.AFTER_INIT + ".additional-imports}" + CodeExecutor.Configuration.Value.CODE_LINE_SEPARATOR +
+				Arrays.class.getName() + CodeExecutor.Configuration.Value.CODE_LINE_SEPARATOR + 
+				SearchResult.class.getName() + CodeExecutor.Configuration.Value.CODE_LINE_SEPARATOR
+			);
+			defaultValues.put(
+				Configuration.Key.AFTER_INIT + CodeExecutor.Configuration.Key.PROPERTIES_FILE_EXECUTOR_NAME_SUFFIX, 
+				ComponentContainer.class.getPackage().getName() + ".AfterInitOperationsExecutor"
+			);
+			
+			DEFAULT_VALUES = Collections.unmodifiableMap(defaultValues);
+		}
+	}
+	
 	private static Collection<ComponentContainer> instances;
-	protected Map<Class<? extends Component>, Component> components;
-	private Supplier<Properties> propertySupplier;
+	private Map<Class<?>, Component> components;
+	private Supplier<java.util.Properties> propertySupplier;
 	private Properties config;
-	private Thread initializerTask;
+	private boolean isUndestroyable;
+	private Consumer<ComponentContainer> preAfterInitCall;
+	private QueuedTasksExecutor.Task afterInitTask;
+	private String instanceId;
 	
 	static {
 		instances = ConcurrentHashMap.newKeySet();
 	}
 	
-	ComponentContainer(Supplier<Properties> propertySupplier) {
+	ComponentContainer(Supplier<java.util.Properties> propertySupplier) {
+		this.instanceId = getId();
 		this.propertySupplier = propertySupplier;
 		this.components = new ConcurrentHashMap<>();
-		this.config = new Properties();
+		this.config = new Properties();		
+		listenTo(GlobalProperties);
+		listenTo(this.config);
 		instances.add(this);
 	}
 	
-	@SuppressWarnings("resource")
 	public final static ComponentContainer create(String configFileName) {
 		try {
 			return new ComponentContainer(() -> {
@@ -94,28 +137,27 @@ public class ComponentContainer implements ComponentSupplier {
 					Properties config = new Properties();
 					if (inputStream != null) {
 						config.load(inputStream);
-						ManagedLoggersRepository.logInfo(ComponentContainer.class, configFileName + " loaded");
+						ManagedLoggersRepository.logInfo(() -> ComponentContainer.class.getName(), configFileName + " loaded");
 					} else {
-						ManagedLoggersRepository.logInfo(ComponentContainer.class, configFileName + " not found");
+						ManagedLoggersRepository.logInfo(() -> ComponentContainer.class.getName(), configFileName + " not found");
 					}
 					return config;
 				} catch (Throwable exc) {
-					throw Throwables.toRuntimeException(exc);
+					return Throwables.throwException(exc);
 				}
-			}).launchInit();
+			}).init();
 		} catch (Throwable exc){
-			ManagedLoggersRepository.logError(ComponentContainer.class, "Exception while creating  " + ComponentContainer.class.getSimpleName() , exc);
-			throw Throwables.toRuntimeException(exc);
+			ManagedLoggersRepository.logError(() -> ComponentContainer.class.getName(), "Exception while creating  " + ComponentContainer.class.getSimpleName() , exc);
+			return Throwables.throwException(exc);
 		}
 	}
 	
-	@SuppressWarnings("resource")
-	public final static ComponentContainer create(Properties properties) {
+	public final static ComponentContainer create(java.util.Properties properties) {
 		try {
-			return new ComponentContainer(() -> properties).launchInit();
+			return new ComponentContainer(() -> properties).init();
 		} catch (Throwable exc){
-			ManagedLoggersRepository.logError(ComponentContainer.class, "Exception while creating  " + ComponentContainer.class.getSimpleName() , exc);
-			throw Throwables.toRuntimeException(exc);
+			ManagedLoggersRepository.logError(() -> ComponentContainer.class.getName(), "Exception while creating  " + ComponentContainer.class.getSimpleName() , exc);
+			return Throwables.throwException(exc);
 		}
 	}
 	
@@ -123,14 +165,19 @@ public class ComponentContainer implements ComponentSupplier {
 		return create((Properties)null);
 	}
 	
-	private ComponentContainer init() {		
+	private ComponentContainer init() {
+		Properties config = new Properties();
 		TreeMap<Object, Object> defaultProperties = new TreeMap<>();
+		defaultProperties.putAll(Configuration.DEFAULT_VALUES);
+		defaultProperties.putAll(CodeExecutor.Configuration.DEFAULT_VALUES);
 		defaultProperties.putAll(PathHelper.Configuration.DEFAULT_VALUES);
 		defaultProperties.putAll(JavaMemoryCompiler.Configuration.DEFAULT_VALUES);
 		defaultProperties.putAll(ClassFactory.Configuration.DEFAULT_VALUES);
-		defaultProperties.putAll(ClassPathScannerAbst.Configuration.DEFAULT_VALUES);
-		defaultProperties.putAll(ClassPathScannerWithCachingSupport.Configuration.DEFAULT_VALUES);
+		defaultProperties.putAll(ByteCodeHunter.Configuration.DEFAULT_VALUES);
 		defaultProperties.putAll(ClassHunter.Configuration.DEFAULT_VALUES);
+		defaultProperties.putAll(ClassPathHunter.Configuration.DEFAULT_VALUES);
+		defaultProperties.putAll(ClassPathScanner.Configuration.DEFAULT_VALUES);
+		defaultProperties.putAll(ClassPathHelper.Configuration.DEFAULT_VALUES);
 		defaultProperties.putAll(PathScannerClassLoader.Configuration.DEFAULT_VALUES);
 				
 		config.putAll(GlobalProperties);
@@ -138,54 +185,103 @@ public class ComponentContainer implements ComponentSupplier {
 		for (Map.Entry<Object, Object> defVal : defaultProperties.entrySet()) {
 			config.putIfAbsent(defVal.getKey(), defVal.getValue());
 		}
-		logInfo(
-			"Configuration values:\n\n{}\n\n... Are assumed",
-			new TreeMap<>(config).entrySet().stream().map(entry -> "\t" + entry.getKey() + "=" + entry.getValue()).collect(Collectors.joining("\n"))
+
+		Synchronizer.execute(getMutexForComponentsId(), () -> {
+			IterableObjectHelper.refresh(this.config, config);
+		});
+		
+		logConfigProperties();
+		setAfterInitTask();
+		return this;
+	}
+	
+	private ComponentContainer setAfterInitTask() {
+		if (config.getProperty(Configuration.Key.AFTER_INIT) != null) {
+			Synchronizer.execute(getMutexForComponentsId(), () -> {
+				this.afterInitTask = BackgroundExecutor.createTask(() -> {
+					if (preAfterInitCall != null) {
+						preAfterInitCall.accept(this);
+					}				
+					Collection<QueuedTasksExecutor.TaskAbst<?, ?>> tasks = resolveProperty(this.config, Configuration.Key.AFTER_INIT, null);
+					if (tasks != null) {
+						for (QueuedTasksExecutor.TaskAbst<?, ?> task : tasks) {
+							task.waitForFinish();
+						}
+					}
+				});
+			});
+		}
+		return this;
+	}
+	
+	public ComponentContainer preAfterInit(Consumer<ComponentContainer> preAfterInitCall) {
+		this.preAfterInitCall = preAfterInitCall;
+		return this;
+	}
+	
+	public void logConfigProperties() {
+		Properties componentContainerConfig = new Properties();
+		componentContainerConfig.putAll(this.config);
+		componentContainerConfig.keySet().removeAll(GlobalProperties.keySet());
+		ManagedLoggersRepository.logInfo(getClass()::getName,
+			"\n\n\tConfiguration values for dynamic components:\n\n{}\n\n",
+			componentContainerConfig.toPrettyString(2)
 		);
-		listenTo(GlobalProperties);
+	}
+	
+	ComponentContainer markAsUndestroyable() {
+		this.isUndestroyable = true;
 		return this;
 	}
 	
 	@Override
-	public void receiveNotification(Properties properties, Event event, Object key, Object value) {
-		if (event == Event.PUT) {
-			config.put(key, value);
-		} else if (event == Event.REMOVE) {
-			config.remove(key);
-		}
-	}
-	
-	private ComponentContainer launchInit() {
-		initializerTask = new Thread(() -> {
-			init();
-			synchronized (components) {
-				initializerTask = null;
-				components.notifyAll();
+	public void processChangeNotification(Properties properties, Event event, Object key, Object newValue, Object oldValue) {
+		if (properties == GlobalProperties) {
+			if (event.name().equals(Event.PUT.name())) {
+				config.put(key, newValue);
+			} else if (event.name().equals(Event.REMOVE.name())) {
+				config.remove(key);
 			}
-		});
-		initializerTask.start();
-		return this;
-	}
-	
-	public void reInit() {
-		clear();
-		config.clear();
-		launchInit();
-	}
-	
-	protected void waitForInitializationEnding() {
-		if (initializerTask != null) {
-			synchronized (components) {
-				if (initializerTask != null) {
-					try {
-						components.wait();
-					} catch (InterruptedException exc) {
-						logError("Exception while waiting " + ComponentContainer.class.getSimpleName() + " initializaziont", exc);
-						throw Throwables.toRuntimeException(exc);
+		} else if (properties == this.config) {
+			if (event.name().equals(Event.PUT.name())) {
+				if (key instanceof String) {
+					String keyAsString = (String)key;
+					if (keyAsString.equals(PathScannerClassLoader.Configuration.Key.PARENT_CLASS_LOADER)) {
+						PathScannerClassLoader pathScannerClassLoader = (PathScannerClassLoader)components.get(PathScannerClassLoader.class);
+						if (pathScannerClassLoader != null) {
+							ClassLoaders.setAsParent(pathScannerClassLoader, resolveProperty(
+								this.config,
+								PathScannerClassLoader.Configuration.Key.PARENT_CLASS_LOADER
+							));
+						}
+					} else if (keyAsString.equals(PathScannerClassLoader.Configuration.Key.SEARCH_CONFIG_CHECK_FILE_OPTION)) {
+						PathScannerClassLoader pathScannerClassLoader = (PathScannerClassLoader)components.get(PathScannerClassLoader.class);
+						if (pathScannerClassLoader != null) {
+							Fields.setDirect(
+								pathScannerClassLoader,
+								"classFileCriteriaAndConsumer",
+								FileSystemItem.Criteria.forClassTypeFiles(
+									config.resolveStringValue(
+										PathScannerClassLoader.Configuration.Key.SEARCH_CONFIG_CHECK_FILE_OPTION
+									)
+								)
+							);
+						}
 					}
 				}
 			}
 		}
+	}
+
+	private String getMutexForComponentsId() {
+		return instanceId + "_components";
+	}
+	
+	public void reset() {
+		Synchronizer.execute(getMutexForComponentsId(), () -> {
+			clear();
+			init();
+		});
 	}
 	
 	public static ComponentContainer getInstance() {
@@ -200,16 +296,30 @@ public class ComponentContainer implements ComponentSupplier {
 		return IterableObjectHelper.resolveStringValue(config, propertyName, defaultValues);
 	}
 	
-	public<T extends Component> T getOrCreate(Class<T> componentType, Supplier<T> componentSupplier) {
-		T component = (T)components.get(componentType);
-		if (component == null) {	
-			waitForInitializationEnding();
-			synchronized (components) {
-				if ((component = (T)components.get(componentType)) == null) {
-					component = componentSupplier.get();
-					components.put(componentType, component);
-				}				
-			}
+	public Object setConfigProperty(String propertyName, Object propertyValue) {
+		return config.put(propertyName, propertyValue);
+	}
+	
+	public Object removeConfigProperty(String propertyName) {
+		return config.remove(propertyName);
+	}
+	
+	@Override
+	public <I, T extends Component> T getOrCreate(Class<I> cls, Supplier<I> componentSupplier) {
+		T component = (T)components.get(cls);
+		if (component == null) {
+			component = Synchronizer.execute(getMutexForComponentsId(), () -> {
+				T componentTemp = (T)components.get(cls);
+				if (componentTemp == null) {
+					QueuedTasksExecutor.Task afterInitTask = this.afterInitTask;
+					if (afterInitTask != null) {
+						this.afterInitTask = null;
+						afterInitTask.submit();
+					}
+					components.put(cls, componentTemp = (T)componentSupplier.get());
+				}
+				return componentTemp;
+			});
 		}
 		return component;
 	}
@@ -217,21 +327,28 @@ public class ComponentContainer implements ComponentSupplier {
 	@Override
 	public PathScannerClassLoader getPathScannerClassLoader() {
 		return getOrCreate(PathScannerClassLoader.class, () -> {
-				PathScannerClassLoader classLoader = PathScannerClassLoader.create(
-					retrieveFromConfig(
-						PathScannerClassLoader.Configuration.Key.PARENT_CLASS_LOADER,
-						PathScannerClassLoader.Configuration.DEFAULT_VALUES
-					), getPathHelper(),
-					FileSystemItem.Criteria.forClassTypeFiles(
-						config.resolveStringValue(
-							PathScannerClassLoader.Configuration.Key.SEARCH_CONFIG_CHECK_FILE_OPTION
-						)
+			PathScannerClassLoader classLoader = new ComponentContainer.PathScannerClassLoader(
+				resolveProperty(
+					this.config,
+					PathScannerClassLoader.Configuration.Key.PARENT_CLASS_LOADER
+				), getPathHelper(),
+				FileSystemItem.Criteria.forClassTypeFiles(
+					config.resolveStringValue(
+						PathScannerClassLoader.Configuration.Key.SEARCH_CONFIG_CHECK_FILE_OPTION
 					)
-				);
-				classLoader.register(this);
-				return classLoader;
-			}
-		);
+				),
+				() -> {
+					Synchronizer.execute(getMutexForComponentsId(), () -> {
+						PathScannerClassLoader cL = (PathScannerClassLoader)components.remove(PathScannerClassLoader.class);
+						if (cL != null) {
+							cL.unregister(this, true);
+						}
+					});
+				}
+			);
+			classLoader.register(this);
+			return classLoader;
+		});
 	}
 	
 	@Override
@@ -242,13 +359,16 @@ public class ComponentContainer implements ComponentSupplier {
 				() -> getClassPathHunter(),
 				getJavaMemoryCompiler(),
 				getPathHelper(),
-				(Supplier<?>)() -> retrieveFromConfig(ClassFactory.Configuration.Key.DEFAULT_CLASS_LOADER, ClassFactory.Configuration.DEFAULT_VALUES),
-				getClassLoaderResetter(),
+				getClassPathHelper(),
+				(Supplier<?>)() -> resolveProperty(
+					this.config, ClassFactory.Configuration.Key.DEFAULT_CLASS_LOADER
+				),
 				config
 			)
 		);	
 	}
 	
+	@Override
 	public CodeExecutor getCodeExecutor() {
 		return getOrCreate(CodeExecutor.class, () -> 
 			CodeExecutor.create(
@@ -264,7 +384,7 @@ public class ComponentContainer implements ComponentSupplier {
 		return getOrCreate(JavaMemoryCompiler.class, () ->
 			JavaMemoryCompiler.create(
 				getPathHelper(),
-				getClassPathHunter(),
+				getClassPathHelper(),
 				config
 			)
 		);
@@ -274,23 +394,35 @@ public class ComponentContainer implements ComponentSupplier {
 	public ClassHunter getClassHunter() {
 		return getOrCreate(ClassHunter.class, () -> {
 			return ClassHunter.create(
-				() -> getClassHunter(),
 				getPathHelper(),
-				(Supplier<?>)() -> retrieveFromConfig(ClassHunter.Configuration.Key.DEFAULT_PATH_SCANNER_CLASS_LOADER, ClassHunter.Configuration.DEFAULT_VALUES),
-				getClassLoaderResetter(),
+				(Supplier<?>)() -> resolveProperty(
+					this.config,
+					ClassHunter.Configuration.Key.DEFAULT_PATH_SCANNER_CLASS_LOADER
+				),
 				config
 			);
 		});
 	}
 
+	@Override
+	public ClassPathHelper getClassPathHelper() {
+		return getOrCreate(ClassPathHelper.class, () ->
+			ClassPathHelper.create(
+				getClassPathHunter(),
+				config
+			)
+		);
+	}
 	
 	@Override
 	public ClassPathHunter getClassPathHunter() {
 		return getOrCreate(ClassPathHunter.class, () -> 
 			ClassPathHunter.create(
-				() -> getByteCodeHunter(),
-				() -> getClassHunter(),
 				getPathHelper(),
+				(Supplier<?>)() -> resolveProperty(
+					this.config,
+					ClassPathHunter.Configuration.Key.DEFAULT_PATH_SCANNER_CLASS_LOADER
+				),
 				config
 			)
 		);
@@ -300,8 +432,11 @@ public class ComponentContainer implements ComponentSupplier {
 	public ByteCodeHunter getByteCodeHunter() {
 		return getOrCreate(ByteCodeHunter.class, () -> 
 			ByteCodeHunter.create(
-				() -> getClassHunter(),
 				getPathHelper(),
+				(Supplier<?>)() -> resolveProperty(
+					this.config,
+					ByteCodeHunter.Configuration.Key.DEFAULT_PATH_SCANNER_CLASS_LOADER
+				),
 				config
 			)
 		);
@@ -325,75 +460,95 @@ public class ComponentContainer implements ComponentSupplier {
 		);
 	}
 	
+	public <T> T resolveProperty(java.util.Properties properties, String configKey) {
+		return resolveProperty(properties, configKey, null);
+	}
 	
-	private <T> T retrieveFromConfig(String configKey, Map<String, Object> defaultValues) {
-		T object = config.resolveValue(configKey, defaultValues);
+	public <T> T resolveProperty(java.util.Properties properties, String configKey, Map<?, ?> defaultValues) {
+		T object = IterableObjectHelper.resolveValue(properties, configKey, null, null, false, defaultValues);
 		if (object instanceof String) {
+			ExecuteConfig.ForProperties executeConfig = ExecuteConfig.fromDefaultProperties()
+			.setPropertyName(configKey)
+			.withParameter(this)
+			.useAsParentClassLoader(Classes.getClassLoader(Executable.class))
+			.setClassRepositoriesWhereToSearchNotFoundClassesDuringLoading(new HashSet<>());
+			if (defaultValues != null) {
+				executeConfig.withDefaultPropertyValues(defaultValues);
+			}
 			return getCodeExecutor().execute(
-				ExecuteConfig.fromDefaultProperties()
-				.setPropertyName(configKey)
-				.withParameter(this)
-				.withDefaultPropertyValues(defaultValues)
-				.useAsParentClassLoader(Classes.getClassLoader(Executable.class))
+				executeConfig
 			);
 		} else if (object instanceof Function) {
 			return (T)(Supplier<?>)() -> ((Function<ComponentSupplier, ?>)object).apply(this);
 		} else {
-			return (T)object;
+			return object;
 		}
-	}
-	
-	private Consumer<ClassLoader> getClassLoaderResetter() {
-		return classLoader -> {
-			PathScannerClassLoader pathScannerClassLoader = (PathScannerClassLoader)components.get(PathScannerClassLoader.class);
-			if (classLoader == pathScannerClassLoader) {
-				resetPathScannerClassLoader();
-			}
-		};
 	}
 	
 	@Override
 	public ComponentContainer clear() {
-		Iterator<Entry<Class<? extends Component>, Component>> componentsItr =
-			components.entrySet().iterator();
-		synchronized (components) {
-			while (componentsItr.hasNext()) {
-				Entry<Class<? extends Component>, Component> entry = componentsItr.next();
-				try {
-					Component component = entry.getValue();
-					if (!(component instanceof PathScannerClassLoader)) {
-						entry.getValue().close();
-					} else {
-						((PathScannerClassLoader)component).unregister(this, true);
+		Map<Class<?>, Component> components = this.components;
+		Synchronizer.execute(getMutexForComponentsId(), () -> { 
+			this.components = new ConcurrentHashMap<>();
+		});
+		if (!components.isEmpty()) {
+			BackgroundExecutor.createTask((ThrowingRunnable<?>)() ->
+				IterableObjectHelper.deepClear(components, (type, component) -> {
+					try {
+						if (!(component instanceof PathScannerClassLoader)) {
+							component.close();
+						} else {
+							((PathScannerClassLoader)component).unregister(this, true);
+						}					
+					} catch (Throwable exc) {
+						ManagedLoggersRepository.logError(getClass()::getName,"Exception occurred while closing " + component, exc);
 					}
-					
-				} catch (Throwable exc) {
-					logError("Exception occurred while closing " + entry.getValue(), exc);
-				}
-			}
-			components.clear();
+				}),Thread.MIN_PRIORITY
+			).submit();
 		}
 		return this;
 	}
 	
-	public void close() {
-		if (LazyHolder.getComponentContainerInstance() != this) {
-			unregister(GlobalProperties);
-			unregister(config);
-			clear();			
-			components = null;
-			propertySupplier = null;
-			initializerTask = null;
-			config = null;
+	public static void clearAll() {
+		for (ComponentContainer componentContainer : instances) {
+			try {
+				componentContainer.clear();
+			} catch (Throwable exc) {
+				ManagedLoggersRepository.logError(() -> ComponentContainer.class.getName(), "Exception occurred while executing clear on " + componentContainer.toString(), exc);
+			}
+		}
+		Cache.clear();
+	}
+	
+	void close(boolean force) {
+		if (force || !isUndestroyable) {
 			instances.remove(this);
+			closeResources(() -> instanceId == null,  () -> {
+				unregister(GlobalProperties);
+				unregister(config);
+				clear();			
+				components = null;
+				propertySupplier = null;
+				config = null;
+				instanceId = null;
+			});
 		} else {
-			throw Throwables.toRuntimeException("Could not close singleton instance " + LazyHolder.COMPONENT_CONTAINER_INSTANCE);
+			Throwables.throwException("Could not close singleton instance {}", LazyHolder.COMPONENT_CONTAINER_INSTANCE);
 		}
 	}
 	
-	public static void clearAll() {
+	@Override
+	public void close() {
+		close(false);
+	}
+	
+	static void closeAll() {
 		for (ComponentContainer componentContainer : instances) {
-			componentContainer.clear();
+			try {
+				componentContainer.close(true);
+			} catch (Throwable exc) {
+				ManagedLoggersRepository.logError(() -> ComponentContainer.class.getName(), "Exception occurred while closing " + componentContainer, exc);
+			}
 		}
 		Cache.clear();
 		System.gc();
@@ -411,7 +566,7 @@ public class ComponentContainer implements ComponentSupplier {
 		for (ComponentContainer componentContainer : instances) {
 			componentContainer.clearCache(closeHuntersResults, closeClassRetrievers);
 		}
-		Cache.clear(clearFileSystemItemReferences ? null : Cache.pathForFileSystemItems);
+		Cache.clear(true, clearFileSystemItemReferences ? null : Cache.pathForFileSystemItems);
 		System.gc();
 	}
 	
@@ -440,21 +595,37 @@ public class ComponentContainer implements ComponentSupplier {
 			classPathHunter.clearCache(closeHuntersResults);
 		}
 	}
-	
-	private void resetPathScannerClassLoader() {
-		synchronized(components) {
-			PathScannerClassLoader classLoader = (PathScannerClassLoader)components.remove(PathScannerClassLoader.class);
-			if (classLoader != null) {
-				classLoader.unregister(this, true);
-			}
-		}
-	}
+
 	
 	private static class LazyHolder {
-		private static final ComponentContainer COMPONENT_CONTAINER_INSTANCE = ComponentContainer.create("burningwave.properties");
+		private static final ComponentContainer COMPONENT_CONTAINER_INSTANCE = ComponentContainer.create("burningwave.properties").markAsUndestroyable();
 		
 		private static ComponentContainer getComponentContainerInstance() {
 			return COMPONENT_CONTAINER_INSTANCE;
+		}
+	}
+
+	public boolean isClosed() {
+		return !instances.contains(this);
+	}
+	
+	
+	public static class PathScannerClassLoader extends org.burningwave.core.classes.PathScannerClassLoader {
+		
+		static {
+	        ClassLoader.registerAsParallelCapable();
+	    }
+		
+		Runnable markAsCloseableAlgorithm;
+		PathScannerClassLoader(ClassLoader parentClassLoader, PathHelper pathHelper,
+			Criteria scanFileCriteria, Runnable markAsCloseableAlgorithm
+		) {
+			super(parentClassLoader, pathHelper, scanFileCriteria);
+			this.markAsCloseableAlgorithm = markAsCloseableAlgorithm;
+		}
+		
+		public void markAsCloseable() {
+			markAsCloseableAlgorithm.run();
 		}
 	}
 }

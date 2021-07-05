@@ -2,6 +2,7 @@ package org.burningwave.core;
 
 import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
 import static org.burningwave.core.assembler.StaticComponentContainer.Constructors;
+import static org.burningwave.core.assembler.StaticComponentContainer.Methods;
 
 import java.io.InputStream;
 import java.lang.reflect.Method;
@@ -9,13 +10,13 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.burningwave.core.assembler.ComponentContainer;
 import org.burningwave.core.assembler.ComponentSupplier;
 import org.burningwave.core.assembler.StaticComponentContainer;
 import org.burningwave.core.bean.Complex;
 import org.burningwave.core.bean.PojoInterface;
-import org.burningwave.core.classes.ByteCodeHunter.SearchResult;
 import org.burningwave.core.classes.ClassCriteria;
 import org.burningwave.core.classes.ClassFactory;
 import org.burningwave.core.classes.ClassPathHunter;
@@ -33,51 +34,53 @@ import org.junit.jupiter.api.Test;
 
 public class ClassFactoryTest extends BaseTest {
 	
-	@Test
-	public void getOrBuildFunctionClassTestOne() {
-		ComponentSupplier componentSupplier = getComponentSupplier();
-		testNotNull(() -> componentSupplier.getClassFactory().loadOrBuildAndDefineFunctionSubType(Thread.currentThread().getContextClassLoader(), 10));
-	}	
-	
-	@Test
-	public void getOrBuildConsumerClassTestOne() {
-		ComponentSupplier componentSupplier = getComponentSupplier();
-		testNotNull(() -> componentSupplier.getClassFactory().loadOrBuildAndDefineConsumerSubType(Thread.currentThread().getContextClassLoader(), 2));
-	}
-	
-	@Test
-	public void getOrBuildPredicateClassTestOne() {
-		ComponentSupplier componentSupplier = getComponentSupplier();
-		testNotNull(() -> componentSupplier.getClassFactory().loadOrBuildAndDefinePredicateSubType(Thread.currentThread().getContextClassLoader(), 10));
-	}
-	
 	
 	@Test
 	public void getOrBuildPojoClassTestOne() throws Exception {
-		ComponentSupplier componentSupplier = getComponentSupplier();
-		testNotNull(() -> 
-			componentSupplier.getClassFactory().loadOrBuildAndDefinePojoSubType(
-				Thread.currentThread().getContextClassLoader(), this.getClass().getPackage().getName() + ".SimpleVirtual"
-			)
-		);
+		testNotNull(() -> {
+			String className = this.getClass().getPackage().getName() + ".SimpleVirtual";
+			ComponentSupplier componentSupplier = getComponentSupplier();
+			return componentSupplier.getClassFactory().loadOrBuildAndDefine(
+				LoadOrBuildAndDefineConfig.forUnitSourceGenerator(
+					UnitSourceGenerator.create(Classes.retrievePackageName(className)).
+					addClass(
+						PojoSourceGenerator.create().generate(
+							className					
+						)
+					)
+				)
+			).get(className);
+		});
 	}
 	
 	
 	@Test
 	public void getOrBuildPojoClassTestTwo() throws Exception {
+		String className = this.getClass().getPackage().getName() + ".TestTwoPojoImpl";
 		ComponentSupplier componentSupplier = getComponentSupplier();
-		java.lang.Class<?> cls = componentSupplier.getClassFactory().loadOrBuildAndDefinePojoSubType(
-			Thread.currentThread().getContextClassLoader(),
-			this.getClass().getPackage().getName() + ".TestTwoPojoImpl",
-			PojoSourceGenerator.BUILDING_METHODS_CREATION_ENABLED,
-			Complex.Data.Item.class,
-			PojoInterface.class
-		);
+		java.lang.Class<?> cls = componentSupplier.getClassFactory().loadOrBuildAndDefine(
+			LoadOrBuildAndDefineConfig.forUnitSourceGenerator(
+				UnitSourceGenerator.create(Classes.retrievePackageName(className)).
+				addClass(PojoSourceGenerator.create().generate(
+					className,
+					PojoSourceGenerator.BUILDING_METHODS_CREATION_ENABLED,
+					Complex.Data.Item.class,
+					PojoInterface.class
+				))
+			).useClassLoader(Thread.currentThread().getContextClassLoader())
+		).get(className);
 		testNotNull(() -> {
-			Class<?> reloadedCls = componentSupplier.getClassFactory().loadOrBuildAndDefinePojoSubType(
-				Thread.currentThread().getContextClassLoader(), cls.getPackage().getName() + ".ExtendedPojoImpl",
-				PojoSourceGenerator.BUILDING_METHODS_CREATION_ENABLED, cls
-			);
+			String classNameTwo = cls.getPackage().getName() + ".ExtendedPojoImpl";
+			Class<?> reloadedCls = componentSupplier.getClassFactory().loadOrBuildAndDefine(
+				LoadOrBuildAndDefineConfig.forUnitSourceGenerator(
+					UnitSourceGenerator.create(Classes.retrievePackageName(classNameTwo)).
+					addClass(PojoSourceGenerator.create().generate(
+						classNameTwo,
+						PojoSourceGenerator.BUILDING_METHODS_CREATION_ENABLED,
+						cls
+					))
+				).useClassLoader(Thread.currentThread().getContextClassLoader())
+			).get(classNameTwo);
 			Method createMethod = Classes.getDeclaredMethods(reloadedCls, method -> 
 				method.getName().equals("create") &&
 				method.getParameterTypes()[0].equals(String.class)).stream().findFirst().orElse(null);
@@ -122,7 +125,7 @@ public class ClassFactoryTest extends BaseTest {
 			int threadCount = 6;
 			Collection<Thread> threads = new ArrayList<>();
 			for (int i = 0; i < threadCount; i++) {
-				threads.add(new Thread( () -> getOrBuildClassWithExternalClassTestOne(true, false, "ComplexExample", "ComplexExampleTwo", null)));
+				threads.add(new Thread( () -> getOrBuildClassWithExternalClassTestOne(true, "ComplexExample", "ComplexExampleTwo", null)));
 			}
 			for (Thread thread : threads) {
 				thread.start();
@@ -135,23 +138,66 @@ public class ClassFactoryTest extends BaseTest {
 	
 	@Test
 	public void getOrBuildClassWithExternalClassTestOne() {
-		getOrBuildClassWithExternalClassTestOne(true, false, "ComplexExample", "ComplexExampleTwo", null);
+		getOrBuildClassWithExternalClassTestOne(true, "ComplexExample", "ComplexExampleTwo", null);
 	}
 	
 	@Test
 	//@Tag("Heavy")
 	public void getOrBuildClassWithExternalClassTestFive() {
-		getOrBuildClassWithExternalClassTestOne(true, true, "ComplexExampleFour", "ComplexExampleFive", null);
+		getOrBuildClassWithExternalClassTestOne(true, "ComplexExampleFour", "ComplexExampleFive", null);
 	}
 	
 	@Test
 	public void getOrBuildClassWithExternalClassTestSix() {
-		getOrBuildClassWithExternalClassTestOne(true, false, "ComplexExample", "ComplexExampleTwo", Thread.currentThread().getContextClassLoader());
+		getOrBuildClassWithExternalClassTestOne(true, "ComplexExample", "ComplexExampleTwo", Thread.currentThread().getContextClassLoader());
+	}
+	
+	@Test
+	public void getOrBuildClassWithExternalClassTestNine() {
+		getOrBuildClassWithExternalClassTestOne(true, "ComplexExample", "ComplexExampleTwo", new ClassLoader(null){});
+	}
+	
+	@Test
+	public void getOrBuildClassWithExternalClassTestSeven() {
+		testNotNull(() -> {
+			_getOrBuildClassWithExternalClassTestTwo().getAllCompiledClasses();
+			ComponentSupplier componentSupplier = getComponentSupplier();
+			PathHelper pathHelper = componentSupplier.getPathHelper();
+			UnitSourceGenerator unitSG = UnitSourceGenerator.create("packagename").addClass(
+				ClassSourceGenerator.create(
+					TypeDeclarationSourceGenerator.create("ExternalClassReferenceTest")
+				).addModifier(
+					Modifier.PUBLIC
+				).expands(
+					TypeDeclarationSourceGenerator.create("DefaultSerializer")
+				)
+			).addImport(
+				"org.springframework.core.serializer.DefaultSerializer"
+			);
+			AtomicReference<ClassFactory.ClassRetriever> classRetrieverWrapper = new AtomicReference<ClassFactory.ClassRetriever>();
+			testNotNull(() -> {
+				try (ClassPathHunter.SearchResult searchResult = componentSupplier.getClassPathHunter().findBy(
+					SearchConfig.byCriteria(
+						ClassCriteria.create().className(Virtual.class.getName()::equals)
+					)
+				)) {
+					classRetrieverWrapper.set(
+						componentSupplier.getClassFactory().loadOrBuildAndDefine(
+							LoadOrBuildAndDefineConfig.forUnitSourceGenerator(unitSG).setClassRepository(
+								pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip"),
+								pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/spring-core-4.3.4.RELEASE.jar")
+							)
+						)
+					);
+					return classRetrieverWrapper.get().get("freemarker.core.AndExpression");
+				}
+			});
+			return classRetrieverWrapper.get();
+		});
 	}
 	
 	public void getOrBuildClassWithExternalClassTestOne(
 		boolean clearCache,
-		boolean adjustClassPaths,
 		String classNameOne,
 		String classNameTwo,
 		ClassLoader classLoader
@@ -171,7 +217,7 @@ public class ClassFactoryTest extends BaseTest {
 					VariableSourceGenerator.create(TypeDeclarationSourceGenerator.create(InputStream.class), "inputStream")
 				).addThrowable(
 					TypeDeclarationSourceGenerator.create("SOAPException")				
-				).addBodyCodeRow("super(parentSoapMsg, inputStream);")
+				).addBodyCodeLine("super(parentSoapMsg, inputStream);")
 			)
 		).addImport(
 			"org.apache.axis2.saaj.SOAPPartImpl",
@@ -193,7 +239,7 @@ public class ClassFactoryTest extends BaseTest {
 					VariableSourceGenerator.create(TypeDeclarationSourceGenerator.create(InputStream.class), "inputStream")
 				).addThrowable(
 					TypeDeclarationSourceGenerator.create("SOAPException")				
-				).addBodyCodeRow("super(parentSoapMsg, inputStream);")
+				).addBodyCodeLine("super(parentSoapMsg, inputStream);")
 			)
 		).addImport(
 			"org.apache.axis2.saaj.SOAPPartImpl",
@@ -206,15 +252,9 @@ public class ClassFactoryTest extends BaseTest {
 			LoadOrBuildAndDefineConfig config = LoadOrBuildAndDefineConfig.forUnitSourceGenerator(unitSG).useClassLoader(
 				classLoader
 			);
-			if (adjustClassPaths) {
-				config.setClassRepository(
-					pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
-				);
-			} else {
-				config.addClassPaths(
-					pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
-				);
-			}
+			config.setClassRepository(
+				pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
+			);
 			ClassFactory.ClassRetriever classRetriever = componentSupplier.getClassFactory().loadOrBuildAndDefine(
 				config			
 			);
@@ -225,15 +265,9 @@ public class ClassFactoryTest extends BaseTest {
 			config = LoadOrBuildAndDefineConfig.forUnitSourceGenerator(unitSG2).useClassLoader(
 				classLoader
 			);
-			if (adjustClassPaths) {
-				config.addClassRepository(
-					pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
-				);
-			} else {
-				config.addClassPaths(
-					pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
-				);
-			}
+			config.setClassRepository(
+				pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
+			);
 			classRetriever = componentSupplier.getClassFactory().loadOrBuildAndDefine(
 				config			
 			);
@@ -243,6 +277,11 @@ public class ClassFactoryTest extends BaseTest {
 	
 	@Test
 	public void getOrBuildClassWithExternalClassTestTwo() {
+		_getOrBuildClassWithExternalClassTestTwo();
+	}
+	
+	
+	public ClassFactory.ClassRetriever _getOrBuildClassWithExternalClassTestTwo() {
 		ComponentSupplier componentSupplier = getComponentSupplier();
 		PathHelper pathHelper = componentSupplier.getPathHelper();
 		UnitSourceGenerator unitSG = UnitSourceGenerator.create("packagename").addClass(
@@ -256,6 +295,46 @@ public class ClassFactoryTest extends BaseTest {
 		).addImport(
 			"org.springframework.core.serializer.DefaultSerializer"
 		);
+		AtomicReference<ClassFactory.ClassRetriever> classRetrieverWrapper = new AtomicReference<ClassFactory.ClassRetriever>();
+		testNotNull(() -> {
+			try (ClassPathHunter.SearchResult searchResult = componentSupplier.getClassPathHunter().findBy(
+				SearchConfig.byCriteria(
+					ClassCriteria.create().className(Virtual.class.getName()::equals)
+				)
+			)) {
+				classRetrieverWrapper.set(
+					componentSupplier.getClassFactory().loadOrBuildAndDefine(
+						LoadOrBuildAndDefineConfig.forUnitSourceGenerator(unitSG).modifyCompilationConfig(compileConfig -> 
+							compileConfig.addClassPaths(
+								pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/spring-core-4.3.4.RELEASE.jar")
+							)							
+						)
+					)
+				);
+				return classRetrieverWrapper.get().get("packagename.ExternalClassReferenceTest");
+			}
+		});
+		return classRetrieverWrapper.get();
+	}
+	
+	//@Test
+	public void getOrBuildClassWithExternalClassTestEight() {
+		ComponentSupplier componentSupplier = getComponentSupplier();
+		UnitSourceGenerator unitSG = UnitSourceGenerator.create("jdk.internal.loader").addClass(
+			ClassSourceGenerator.create(
+				TypeDeclarationSourceGenerator.create("ExtendedBuiltinClassLoader")
+			).addModifier(
+				Modifier.PUBLIC
+			).expands(
+				TypeDeclarationSourceGenerator.create("BuiltinClassLoader")
+			).addConstructor(
+				FunctionSourceGenerator.create().addParameter(
+					VariableSourceGenerator.create(TypeDeclarationSourceGenerator.create("BuiltinClassLoader"), "parent")
+				).addBodyCodeLine("super(null, parent, null);")
+			)
+		).addImport(
+			"jdk.internal.loader.BuiltinClassLoader"
+		);
 		
 			testNotNull(() -> {
 				try (ClassPathHunter.SearchResult searchResult = componentSupplier.getClassPathHunter().findBy(
@@ -264,11 +343,9 @@ public class ClassFactoryTest extends BaseTest {
 					)
 				)) {
 					ClassFactory.ClassRetriever classRetriever = componentSupplier.getClassFactory().loadOrBuildAndDefine(
-						LoadOrBuildAndDefineConfig.forUnitSourceGenerator(unitSG).setClassPaths(
-							pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/spring-core-4.3.4.RELEASE.jar")
-						)
+						LoadOrBuildAndDefineConfig.forUnitSourceGenerator(unitSG)
 					);
-					return classRetriever.get("packagename.ExternalClassReferenceTest");
+					return classRetriever.get("jdk.internal.loader.ExtendedBuiltinClassLoader");
 				}
 			});
 	}
@@ -316,16 +393,12 @@ public class ClassFactoryTest extends BaseTest {
 		);
 		testNotNull(() -> {
 			ClassFactory.ClassRetriever classRetriever = componentSupplier.getClassFactory().loadOrBuildAndDefine(
-				LoadOrBuildAndDefineConfig.forUnitSourceGenerator(unitSG).setClassPaths(
-					pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/spring-core-4.3.4.RELEASE.jar")
+				LoadOrBuildAndDefineConfig.forUnitSourceGenerator(unitSG).setClassRepository(
+					pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/spring-core-4.3.4.RELEASE.jar"),
+					pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/libs-for-test.zip")
 				)
 			);
-			SearchResult searchResult = componentSupplier.getByteCodeHunter().loadInCache(SearchConfig.forPaths(
-				pathHelper.getAbsolutePathOfResource("../../src/test/external-resources/commons-lang")
-			)
-			).find();
 			classRetriever.get(
-				searchResult.getByteCodesFlatMap(), 
 				"org.apache.commons.lang.ArrayUtils",
 				"org.springframework.util.TypeUtils"
 			);
@@ -337,17 +410,24 @@ public class ClassFactoryTest extends BaseTest {
 	public void getOrBuildPojoClassTestThree() throws Exception {
 		ComponentSupplier componentSupplier = getComponentSupplier();
 		testNotNull(() -> {
-			java.lang.Class<?> virtualClass = componentSupplier.getClassFactory().loadOrBuildAndDefinePojoSubType(
-				Thread.currentThread().getContextClassLoader(), this.getClass().getPackage().getName() + ".TestThreePojoImpl", 
-				Service.class,
-				PojoInterface.class
-			);
+			String classNameTwo = this.getClass().getPackage().getName() + ".TestThreePojoImpl";
+			Class<?> virtualClass = componentSupplier.getClassFactory().loadOrBuildAndDefine(
+				LoadOrBuildAndDefineConfig.forUnitSourceGenerator(
+					UnitSourceGenerator.create(Classes.retrievePackageName(classNameTwo)).
+					addClass(PojoSourceGenerator.create().generate(
+						classNameTwo,
+						PojoSourceGenerator.BUILDING_METHODS_CREATION_ENABLED,
+						Service.class,
+						PojoInterface.class
+					))
+				).useClassLoader(Thread.currentThread().getContextClassLoader())
+			).get(classNameTwo);
 			Virtual virtual = (Virtual)Constructors.newInstanceDirectOf(virtualClass);
 			virtual.invokeDirect("setList", new ArrayList<>());
 			virtual.invoke("setList", new ArrayList<>());
 			virtual.invokeDirect("setList", new ArrayList<>());
 			virtual.invoke("consume", Integer.valueOf(1));
-			virtual.invokeDirect("consume", Integer.valueOf(1));
+			Methods.invokeStaticDirect(virtual.getClass(), "consume", Integer.valueOf(1));
 			List<?> list = virtual.getValueOf("list");
 			list = virtual.getDirectValueOf("list");
 			return list;

@@ -32,6 +32,7 @@ import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
 import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
@@ -40,7 +41,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.burningwave.core.assembler.StaticComponentContainer;
-import org.burningwave.core.function.ThrowingSupplier;
+import org.burningwave.core.function.Executor;
 import org.burningwave.core.iterable.Properties;
 
 public class Resources {
@@ -61,7 +62,7 @@ public class Resources {
 					propertiesBag.setValue(configFileURL);
 					break;
 				} catch (Throwable exc) {
-					throw Throwables.toRuntimeException(exc);
+					Throwables.throwException(exc);
 				}
 			}
 		}
@@ -87,24 +88,30 @@ public class Resources {
 	}
 	
 	public StringBuffer getAsStringBuffer(ClassLoader resourceClassLoader, String resourceRelativePath) {
-		return ThrowingSupplier.get(() -> {
+		return Executor.get(() -> {
 			ClassLoader classLoader = Optional.ofNullable(resourceClassLoader).orElseGet(() ->
 				ClassLoader.getSystemClassLoader()
 			);
-			try (BufferedReader reader = new BufferedReader(
-					new InputStreamReader(
-						classLoader.getResourceAsStream(resourceRelativePath)
-					)
-				)
-			) {
-				StringBuffer result = new StringBuffer();
-				String sCurrentLine;
-				while ((sCurrentLine = reader.readLine()) != null) {
-					result.append(sCurrentLine + "\n");
-				}
-				return result;
-			}
+			return getAsStringBuffer(					
+					classLoader.getResourceAsStream(resourceRelativePath)
+			);
 		});
+	}
+
+	private StringBuffer getAsStringBuffer(InputStream inputStream) throws IOException {
+		try (BufferedReader reader = new BufferedReader(
+				new InputStreamReader(
+					inputStream
+				)
+			)
+		) {
+			StringBuffer result = new StringBuffer();
+			String sCurrentLine;
+			while ((sCurrentLine = reader.readLine()) != null) {
+				result.append(sCurrentLine + "\n");
+			}
+			return result;
+		}
 	}
 
 	public URL getURL(ClassLoader resourceClassLoader, String fileName) {

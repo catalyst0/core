@@ -1,7 +1,7 @@
 package org.burningwave.core;
 
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
 import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
-
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,12 +17,12 @@ import java.util.function.Supplier;
 
 import org.burningwave.core.assembler.ComponentContainer;
 import org.burningwave.core.assembler.ComponentSupplier;
-import org.junit.FixMethodOrder;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.function.ThrowingSupplier;
-import org.junit.runners.MethodSorters;
 
-@FixMethodOrder(MethodSorters.NAME_ASCENDING)
+@SuppressWarnings("unused")
+//@TestMethodOrder(Random.class)
+//@TestMethodOrder(MethodName.class)
 public class BaseTest implements Component {
 
 	Collection<ComponentSupplier> componentSuppliers = new CopyOnWriteArrayList<>();
@@ -34,8 +34,8 @@ public class BaseTest implements Component {
 //		return ComponentSupplier.getInstance();
 //	}
 	
-	protected synchronized ComponentSupplier getComponentSupplier() {
-		if (componentSupplier == null) {
+	protected synchronized ComponentContainer getComponentSupplier() {
+		if (componentSupplier == null || componentSupplier.isClosed()) {
 			return componentSupplier = ComponentContainer.create("burningwave.properties");
 		}
 		return componentSupplier;
@@ -53,6 +53,7 @@ public class BaseTest implements Component {
 		List<Thread> threadList = new CopyOnWriteArrayList<>();
 		for (int i = 0; i < 1000; i++) {
 			Thread thread = new Thread() {
+				@Override
 				public void run() {
 					componentSuppliers.add(ComponentSupplier.getInstance());
 				};
@@ -79,11 +80,11 @@ public class BaseTest implements Component {
 	public void testNotNull(ThrowingSupplier<?> supplier) {
 		Object object = null;
 		try {
-			logInfo(getCallerMethod() + " - start execution");
+			ManagedLoggersRepository.logInfo(getClass()::getName, getCallerMethod() + " - start execution");
 			object = supplier.get();
-			logInfo(getCallerMethod() + " - end execution");
+			ManagedLoggersRepository.logInfo(getClass()::getName, getCallerMethod() + " - end execution");
 		} catch (Throwable exc) {
-			logError(getCallerMethod() + " - Exception occurred", exc);
+			ManagedLoggersRepository.logError(getClass()::getName, getCallerMethod() + " - Exception occurred", exc);
 		}
 		assertNotNull(object);
 	}
@@ -98,17 +99,17 @@ public class BaseTest implements Component {
 		boolean isNotEmpty = false;
 		try {
 			coll = supplier.get();
-			logInfo(getCallerMethod() + " - Found " + coll.size() + " items in " + getFormattedDifferenceOfMillis(System.currentTimeMillis(), initialTime));
+			ManagedLoggersRepository.logInfo(getClass()::getName, getCallerMethod() + " - Found " + coll.size() + " items in " + getFormattedDifferenceOfMillis(System.currentTimeMillis(), initialTime));
 			isNotEmpty = !coll.isEmpty();
 			if (isNotEmpty && printAllElements) {
 				for (Object obj : coll) {
 					if (obj != null) {
-						logDebug("{}", obj);
+						ManagedLoggersRepository.logDebug(getClass()::getName, "{}", obj);
 					}
 				}
 			}
 		} catch (Throwable exc) {
-			logError(getCallerMethod() + " - Exception occurred", exc);
+			ManagedLoggersRepository.logError(getClass()::getName, getCallerMethod() + " - Exception occurred", exc);
 		}
 		assertTrue(!coll.isEmpty());
 	}
@@ -134,15 +135,15 @@ public class BaseTest implements Component {
 		boolean isNotEmpty = false;
 		try (T collectionSupplier = autoCloaseableSupplier.get()){
 			coll = collSupplier.apply(collectionSupplier);
-			logInfo(getCallerMethod() + " - Found " + coll.size() + " items in " + getFormattedDifferenceOfMillis(System.currentTimeMillis(), initialTime));
+			ManagedLoggersRepository.logInfo(getClass()::getName, getCallerMethod() + " - Found " + coll.size() + " items in " + getFormattedDifferenceOfMillis(System.currentTimeMillis(), initialTime));
 			isNotEmpty = !coll.isEmpty();
 			if (isNotEmpty && printAllElements) {
-				coll.forEach(element -> logDebug(
+				coll.forEach(element -> ManagedLoggersRepository.logDebug(getClass()::getName, 
 					Optional.ofNullable(element.toString()).orElseGet(() -> null)
 				));
 			}
 		} catch (Throwable exc) {
-			logError(getCallerMethod() + " - Exception occurred", exc);
+			ManagedLoggersRepository.logError(getClass()::getName, getCallerMethod() + " - Exception occurred", exc);
 		}
 		assertTrue(isNotEmpty);
 	}
@@ -155,9 +156,9 @@ public class BaseTest implements Component {
 		long initialTime = System.currentTimeMillis();
 		try (T autoCloseable = autoCloseableSupplier.get()) {
 			assertNotNull(objectSupplier.apply(autoCloseable));
-			logInfo(getCallerMethod() + " - Elapsed time: " + getFormattedDifferenceOfMillis(System.currentTimeMillis(), initialTime));
+			ManagedLoggersRepository.logInfo(getClass()::getName, getCallerMethod() + " - Elapsed time: " + getFormattedDifferenceOfMillis(System.currentTimeMillis(), initialTime));
 		} catch (Throwable exc) {
-			logError(getCallerMethod() + " - Exception occurred", exc);
+			ManagedLoggersRepository.logError(getClass()::getName, getCallerMethod() + " - Exception occurred", exc);
 		}		
 	}
 	
@@ -166,11 +167,11 @@ public class BaseTest implements Component {
 		Throwable throwable = null;
 		long initialTime = System.currentTimeMillis();
 		try {
-			logDebug(getCallerMethod() + " - Initializing logger");
+			ManagedLoggersRepository.logDebug(getClass()::getName, getCallerMethod() + " - Initializing logger");
 			executable.execute();
-			logInfo(getCallerMethod() + " - Elapsed time: " + getFormattedDifferenceOfMillis(System.currentTimeMillis(), initialTime));
+			ManagedLoggersRepository.logInfo(getClass()::getName, getCallerMethod() + " - Elapsed time: " + getFormattedDifferenceOfMillis(System.currentTimeMillis(), initialTime));
 		} catch (Throwable exc) {
-			logError(getCallerMethod() + " - Exception occurred", exc);
+			ManagedLoggersRepository.logError(getClass()::getName, getCallerMethod() + " - Exception occurred", exc);
 			throwable = exc;
 		}
 		assertNull(throwable);
@@ -186,7 +187,7 @@ public class BaseTest implements Component {
 		try {
 			Thread.sleep(seconds * 1000);
 		} catch (InterruptedException exc) {
-			throw Throwables.toRuntimeException(exc);
+			Throwables.throwException(exc);
 		}
 	}
 	

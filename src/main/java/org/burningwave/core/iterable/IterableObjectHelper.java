@@ -28,364 +28,146 @@
  */
 package org.burningwave.core.iterable;
 
-import static org.burningwave.core.assembler.StaticComponentContainer.Strings;
-import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
-
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.burningwave.core.Component;
+import org.burningwave.core.function.ThrowingBiConsumer;
+import org.burningwave.core.function.ThrowingConsumer;
+import org.burningwave.core.iterable.Properties.Event;
 
-@SuppressWarnings("unchecked")
-public class IterableObjectHelper implements Component {
-	private IterableObjectHelper() {}
+public interface IterableObjectHelper {
 	
-	public static IterableObjectHelper create() {
-		return new IterableObjectHelper();
-	}
-	
-	public <T> Collection<T> merge(
-		Supplier<Collection<T>> baseCollectionSupplier,
-		Supplier<Collection<T>> additionalCollectionSupplier,
-		Supplier<Collection<T>> defaultCollectionSupplier
-	) {
-		Collection<T> mergedCollection = Optional.ofNullable(
-			baseCollectionSupplier.get()
-		).orElseGet(() ->
-			defaultCollectionSupplier.get()
-		);
-		Collection<T> additionalClassPaths = additionalCollectionSupplier.get();
-		if (additionalClassPaths != null) {
-			mergedCollection.addAll(additionalClassPaths);
-		}
-		return mergedCollection;
-	}
-	
-	public <T> T getRandom(Collection<T> coll) {
-		int num = (int) (Math.random() * coll.size());
-	    for(T t: coll) {
-	    	if (--num < 0) return t;
-	    }
-	    return null;
-	}
-	
-	public <T> Stream<T> retrieveStream(Object object) {
-		Stream<T> stream = null;
-		if (object != null) {
-			if (object instanceof Collection) {
-				return ((Collection<T>)object).stream();
-			} else if (object.getClass().isArray()) {
-				return Stream.of((T[])object);
-			} else if (object instanceof Map) {
-				return (Stream<T>) ((Map<T, ?>)object).entrySet().stream();
-			}
-		}
-		return stream;
-	}
-
-	public long getSize(Object object) {
-		return retrieveStream(object).count();
-	}
-
-////////////////////	
-	
-	public <T> T resolveValue(Map<?,?> map, String key) {
-		return resolveValue(key, () -> resolve(map, key, null, false, null));
-	}	
-	
-	public <T> Collection<T> resolveValues(Map<?,?> map, String key) {
-		return resolve(map, key, null, false, null);
-	}	
-	
-	public Collection<String> resolveStringValues(Map<?,?> map, String key) {
-		return resolveValues(map, key);
-	}
-	
-	public String resolveStringValue(Map<?,?> map, String key) {
-		return resolveValue(map, key);
-	}
-
-////////////////////
-	
-	public <T> T resolveValue(Map<?,?> map, String key, Map<String, ?> defaultValues) {
-		return resolveValue(key, () -> resolve(map, key, null, false, defaultValues));
-	}	
-	
-	public <T> Collection<T> resolveValues(Map<?,?> map, String key, Map<String, ?> defaultValues) {
-		return resolve(map, key, null, false, defaultValues);
-	}
-	
-	public String resolveStringValue(Map<?,?> map, String key, Map<String, ?> defaultValues) {
-		return resolveValue(map, key, defaultValues);
-	}
-	
-	public Collection<String> resolveStringValues(Map<?,?> map, String key, Map<String, ?> defaultValues) {
-		return resolveValues(map, key, defaultValues);
-	}
-
-////////////////////
-	
-	public <T> T resolveValue(Map<?,?> map, String key, String valuesSeparator) {
-		return resolveValue(key, () -> resolve(map, key, valuesSeparator, false, null));
-	}	
-	
-	public <T> Collection<T> resolveValues(Map<?,?> map, String key, String valuesSeparator) {
-		return resolve(map, key, valuesSeparator, false, null);
-	}
-	
-	public String resolveStringValue(Map<?,?> map, String key, String valuesSeparator) {
-		return resolveValue(map, key, valuesSeparator);
-	}
-	
-	public Collection<String> resolveStringValues(Map<?,?> map, String key, String valuesSeparator) {
-		return resolveValues(map, key, valuesSeparator);
-	}
-	
-////////////////////
-
-	
-	public <T> T resolveObjectValue(
-		Map<?,?> map,
-		String key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder
-	) {
-		return resolveValue(key, () -> resolve(map, key, valuesSeparator, deleteUnresolvedPlaceHolder, null));
-	}
-
-	public <T> Collection<T> resolveObjectValues(
-		Map<?,?> map, String key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder
-	) {
-		return resolve(map, key, valuesSeparator, deleteUnresolvedPlaceHolder, null);
-	}
-
-	public String resolveStringValue(
-		Map<?,?> map,
-		String key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder
-	) {
-		return resolveObjectValue(map, key, valuesSeparator, deleteUnresolvedPlaceHolder);
-	}
-
-	public Collection<String> resolveStringValues(
-		Map<?,?> map,
-		String key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder
-	) {
-		return resolveObjectValues(map, key, valuesSeparator, deleteUnresolvedPlaceHolder);
-	}
-	
-////////////////////
-	public <T> T resolveValue(
-		Map<?,?> map,
-		String key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder,
-		Map<?,?> defaultValues
-	) {
-		return resolveValue(key, () -> resolve(map, key, valuesSeparator, deleteUnresolvedPlaceHolder, defaultValues));
-	}
-
-	public <T> Collection<T> resolveValues(
-		Map<?,?> map, String key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder,
-		Map<?,?> defaultValues
-	) {
-		return resolve(map, key, valuesSeparator, deleteUnresolvedPlaceHolder, defaultValues);
-	}
-
-	public String resolveStringValue(
-		Map<?,?> map,
-		String key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder,
-		Map<?,?> defaultValues
-	) {
-		return resolveValue(map, key, valuesSeparator, deleteUnresolvedPlaceHolder, defaultValues);
-	}
-
-	public Collection<String> resolveStringValues(
-		Map<?,?> map,
-		String key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder,
-		Map<?,?> defaultValues
-	) {
-		return resolveValues(map, key, valuesSeparator, deleteUnresolvedPlaceHolder, defaultValues);
-	}
-	
-////////////////////	
-	
-	
-	private <T> T resolveValue(String key, Supplier<Object> valuesSupplier) {
-		Object value = valuesSupplier.get();
-		if (value instanceof Collection) {
-			Collection<T> values = (Collection<T>)value;
-			if (values.size() > 1) {
-				throw Throwables.toRuntimeException("Found more than one item under key " + key);
-			}
-			return (T)values.stream().findFirst().orElseGet(() -> null);
-		} else {
-			return (T)value;
-		}	
-	}
-	
-	private <T> T resolve(
-		Map<?,?> map,
-		Object key,
-		String valuesSeparator,
-		boolean deleteUnresolvedPlaceHolder,
-		Map<?,?> defaultValues
-	) {
-		T value = (T) map.get(key);
-		if (value == null && defaultValues != null) {
-			value = (T) resolve(defaultValues, key, valuesSeparator, deleteUnresolvedPlaceHolder, null);
-		}
-		if (value != null && value instanceof String) {
-			String stringValue = (String)value;
-			Collection<Object> values = new ArrayList<>();
-			if (!Strings.isEmpty(stringValue)) {
-				Map<Integer, List<String>> subProperties = Strings.extractAllGroups(Strings.PLACE_HOLDER_NAME_EXTRACTOR_PATTERN, stringValue);		
-				if (!subProperties.isEmpty()) {
-					for (Map.Entry<Integer, List<String>> entry : subProperties.entrySet()) {
-						for (String propName : entry.getValue()) {
-							Object valueObjects = null;
-							if (!propName.startsWith("system.properties:")) {
-								valueObjects = resolve(map, propName, valuesSeparator, deleteUnresolvedPlaceHolder, defaultValues);
-							} else {
-								valueObjects = System.getProperty(propName.split(":")[1]);
-								if (valuesSeparator != null) {
-									valueObjects = ((String)valueObjects).replace(
-										System.getProperty("path.separator"), valuesSeparator
-									);
-								}
-							}
-							if (deleteUnresolvedPlaceHolder && valueObjects == null) {
-								stringValue = stringValue.replaceAll(Strings.placeHolderToRegEx("${" + propName + "}") + ".*?" + Optional.ofNullable(valuesSeparator).orElseGet(() -> ""), "");
-								values.add(stringValue);
-							} else if (valueObjects != null) {
-								Collection<Object> replacements = new ArrayList<>();
-								if (valueObjects instanceof String) {
-									replacements.add(valueObjects);
-								} else if (valueObjects instanceof Collection) {
-									replacements.addAll((Collection<?>)valueObjects);
-								} else {
-									replacements.add(valueObjects);
-								}
-								for (Object valueObject : replacements) {
-									if (valueObject instanceof String) {
-										String replacement = (String)valueObject;
-										if (valuesSeparator == null) {
-											values.add(stringValue.replace("${" + propName + "}", replacement));
-										} else {
-											for (String replacementUnit : replacement.split(valuesSeparator)) {
-												String valuesToAdd = stringValue.replace("${" + propName + "}", replacementUnit);
-												if (valuesToAdd.contains(valuesSeparator)) {
-													for (String valueToAdd : valuesToAdd.split(valuesSeparator)) {
-														values.add(valueToAdd);
-													}
-												} else {
-													values.add(valuesToAdd);
-												}
-											}
-										}
-									} else {
-										values.add(valueObject);
-									}
-								}
-							} else {
-								values.add(stringValue);
-							}
-						}
-					}
-				} else {
-					values.add(stringValue);
-				}
-			} else {
-				values.add(stringValue);
-			}
-			return (T)values;
-		} else {
-			return value;
+	public static class Configuration {
+		public static class Key {
+			public final static String DEFAULT_VALUES_SEPERATOR = "iterable-object-helper.default-values-separator";
+			public final static String PARELLEL_ITERATION_APPLICABILITY_MAX_RUNTIME_THREADS_COUNT_THRESHOLD =
+				"iterable-object-helper.parallel-iteration.applicability.max-runtime-threads-count-threshold";
 		}
 		
-	}
-	
-	public Collection<String> getAllPlaceHolders(Map<?, ?> map) {
-		return getAllPlaceHolders(map, object -> true);
-	}
-	
-	public Collection<String> getAllPlaceHolders(Map<?, ?> map, Predicate<String> propertyFilter) {
-		Collection<String> placeHolders = new HashSet<>();
-		for (Map.Entry<?, ?> entry : map.entrySet().stream().filter(entry -> 
-				(entry.getValue() == null || entry.getValue() instanceof String) && (entry.getKey() instanceof String && propertyFilter.test((String)entry.getKey()))
-			).collect(Collectors.toSet())) {
-			String value = (String)entry.getValue();
-			for(List<String> placeHoldersFound : Strings.extractAllGroups(Strings.PLACE_HOLDER_EXTRACTOR_PATTERN, value).values()) {
-				placeHolders.addAll(placeHoldersFound);
-			}
+		public final static Map<String, Object> DEFAULT_VALUES;
+		
+		static {
+			Map<String, Object> defaultValues = new HashMap<>();
+
+			defaultValues.put(Key.DEFAULT_VALUES_SEPERATOR, ";");
+			
+			defaultValues.put(Key.PARELLEL_ITERATION_APPLICABILITY_MAX_RUNTIME_THREADS_COUNT_THRESHOLD, "autodetect");
+						
+			DEFAULT_VALUES = Collections.unmodifiableMap(defaultValues);
 		}
-		return placeHolders;
 	}
 	
-	public Collection<String> getAllPlaceHolders(Map<?, ?> map, String propertyName) {
-		Collection<String> placeHolders = getAllPlaceHolders(map);
-		Iterator<String> placeHoldersItr = placeHolders.iterator();
-		while (placeHoldersItr.hasNext()) {
-			if (!containsValue(map, propertyName, placeHoldersItr.next())) {
-				placeHoldersItr.remove();
-			}
-		}
-		return placeHolders;
+	public static IterableObjectHelper create(Properties config) {
+		IterableObjectHelperImpl iterableObjectHelper = new IterableObjectHelperImpl(
+			config.getProperty(Configuration.Key.DEFAULT_VALUES_SEPERATOR),
+			IterableObjectHelperImpl.computeMatxRuntimeThreadsCountThreshold(config)
+		);
+		iterableObjectHelper.listenTo(config);
+		return iterableObjectHelper;
 	}
 	
-	public boolean containsValue(Map<?, ?> map, String key, Object object) {
-		return containsValue(map, key, object, null);		
-	}
 	
-	public boolean containsValue(Map<?, ?> map, String key, Object object, Map<?, ?> defaultValues) {
-		Object value = map.get(key);
-		if (value == null && defaultValues != null) {
-			value = defaultValues.get(key);
-		}
-		if (value != null && value instanceof String) {
-			if (Strings.isEmpty((String)value) && defaultValues != null) {
-				value = defaultValues.get(key);
-			}
-			if (value != null && value instanceof String) {
-				String stringValue = (String)value;
-				if (!Strings.isEmpty(stringValue)) {
-					if (object instanceof String) {
-						String objectString = (String)object;
-						if (stringValue.contains(objectString)) {
-							return true;
-						}
-					}
-					Map<Integer, List<String>> subProperties = Strings.extractAllGroups(Strings.PLACE_HOLDER_NAME_EXTRACTOR_PATTERN, stringValue);		
-					if (!subProperties.isEmpty()) {
-						for (Map.Entry<Integer, List<String>> entry : subProperties.entrySet()) {
-							for (String propName : entry.getValue()) {
-								return containsValue(map, propName, object, defaultValues);
-							}
-						}
-					}
-				}
-			}
-		}		
-		return object != null && value != null && object.equals(value);
-	}
+	public String getDefaultValuesSeparator();
+
+	public <K, V> void processChangeNotification(Properties properties, Event event, K key, V newValue, V previousValue);
+
+	public <K, V> void deepClear(Map<K, V> map);
+
+	public <K, V, E extends Throwable> void deepClear(Map<K, V> map, ThrowingBiConsumer<K, V, E> itemDestroyer) throws E;
+
+	public <V> void deepClear(Collection<V> map);
+
+	public <V, E extends Throwable> void deepClear(Collection<V> map, ThrowingConsumer<V, E> itemDestroyer) throws E;
+
+	public <T> Collection<T> merge(Supplier<Collection<T>> baseCollectionSupplier,
+			Supplier<Collection<T>> additionalCollectionSupplier, Supplier<Collection<T>> defaultCollectionSupplier);
+
+	public <T> T getRandom(Collection<T> coll);
+
+	public <T> Stream<T> retrieveStream(Object object);
+
+	public long getSize(Object object);
+
+	public <T> T resolveValue(Map<?, ?> map, String key);
+
+	public <T> Collection<T> resolveValues(Map<?, ?> map, String key);
+
+	public Collection<String> resolveStringValues(Map<?, ?> map, String key);
+
+	public String resolveStringValue(Map<?, ?> map, String key);
+
+	public <T> T resolveValue(Map<?, ?> map, String key, Map<String, ?> defaultValues);
+
+	public <T> Collection<T> resolveValues(Map<?, ?> map, String key, Map<String, ?> defaultValues);
+
+	public String resolveStringValue(Map<?, ?> map, String key, Map<String, ?> defaultValues);
+
+	public Collection<String> resolveStringValues(Map<?, ?> map, String key, Map<String, ?> defaultValues);
+
+	public <T> T resolveValue(Map<?, ?> map, String key, String valuesSeparator);
+
+	public <T> Collection<T> resolveValues(Map<?, ?> map, String key, String valuesSeparator);
+
+	public String resolveStringValue(Map<?, ?> map, String key, String valuesSeparator);
+
+	public Collection<String> resolveStringValues(Map<?, ?> map, String key, String valuesSeparator);
+
+	public <T> T resolveValue(Map<?, ?> map, String key, String valuesSeparator, boolean deleteUnresolvedPlaceHolder);
+
+	public <T> Collection<T> resolveValues(Map<?, ?> map, String key, String valuesSeparator,
+			boolean deleteUnresolvedPlaceHolder);
+
+	public String resolveStringValue(Map<?, ?> map, String key, String valuesSeparator, boolean deleteUnresolvedPlaceHolder);
+
+	public Collection<String> resolveStringValues(Map<?, ?> map, String key, String valuesSeparator,
+			boolean deleteUnresolvedPlaceHolder);
+
+	public <T> T resolveValue(Map<?, ?> map, String key, String valuesSeparator, String defaultValuesSeparator,
+			boolean deleteUnresolvedPlaceHolder, Map<?, ?> defaultValues);
+
+	public <T> Collection<T> resolveValues(Map<?, ?> map, String key, String valuesSeparator, String defaultValuesSeparator,
+			boolean deleteUnresolvedPlaceHolder, Map<?, ?> defaultValues);
+
+	public String resolveStringValue(Map<?, ?> map, String key, String valuesSeparator, String defaultValuesSeparator,
+			boolean deleteUnresolvedPlaceHolder, Map<?, ?> defaultValues);
+
+	public Collection<String> resolveStringValues(Map<?, ?> map, String key, String valuesSeparator,
+			String defaultValuesSeparator, boolean deleteUnresolvedPlaceHolder, Map<?, ?> defaultValues);
+
+	public Collection<String> getAllPlaceHolders(Map<?, ?> map);
+
+	public Collection<String> getAllPlaceHolders(Map<?, ?> map, Predicate<String> propertyFilter);
+
+	public Collection<String> getAllPlaceHolders(Map<?, ?> map, String propertyName);
+
+	public boolean containsValue(Map<?, ?> map, String key, Object object);
+
+	public <K, V> void refresh(Map<K, V> source, Map<K, V> newValues);
+
+	public boolean containsValue(Map<?, ?> map, String key, Object object, Map<?, ?> defaultValues);
+
+	public <T, O> Collection<O> iterateParallelIf(Collection<T> items, Consumer<T> action, Predicate<Collection<T>> predicate);
+
+	public <T, O> Collection<O> iterateParallelIf(Collection<T> items, BiConsumer<T, Consumer<O>> action,
+			Collection<O> outputCollection, Predicate<Collection<T>> predicate);
+
+	public <T, O> void iterateParallel(Collection<T> items, Consumer<T> action);
+
+	public <T, O> Collection<O> iterateParallel(Collection<T> items, BiConsumer<T, Consumer<O>> action,
+			Collection<O> outputCollection);
+
+	public String toPrettyString(Map<?, ?> map, String valuesSeparator, int marginTabCount);
+
+	public <K, V> String toString(Map<K, V> map, int marginTabCount);
+
+	public <K, V> String toString(Map<K, V> map, Function<K, String> keyTransformer, Function<V, String> valueTransformer,
+			int marginTabCount);
 }

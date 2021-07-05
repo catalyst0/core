@@ -28,23 +28,27 @@
  */
 package org.burningwave.core.classes;
 
+import static org.burningwave.core.assembler.StaticComponentContainer.BackgroundExecutor;
 import static org.burningwave.core.assembler.StaticComponentContainer.Classes;
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
 import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
 
 import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import org.burningwave.core.Component;
+import org.burningwave.core.Closeable;
 import org.burningwave.core.Context;
+import org.burningwave.core.ManagedLogger;
+import org.burningwave.core.concurrent.QueuedTasksExecutor;
+import org.burningwave.core.function.Executor;
 import org.burningwave.core.function.ThrowingSupplier;
 
-public class SearchContext<T> implements Component {
+class SearchContext<T> implements Closeable, ManagedLogger {
 
 	SearchConfigAbst<?> searchConfig;
 	Map<String, T> itemsFoundFlatMap;
@@ -52,10 +56,9 @@ public class SearchContext<T> implements Component {
 	PathScannerClassLoader sharedPathScannerClassLoader;
 	PathScannerClassLoader pathScannerClassLoader;
 	Collection<String> skippedClassNames;
-	CompletableFuture<Void> searchTask;
+	QueuedTasksExecutor.Task searchTask;
 	Collection<String> pathScannerClassLoaderScannedPaths;
 	Collection<T> itemsFound;
-	boolean searchTaskFinished;
 	
 	Collection<String> getSkippedClassNames() {
 		return skippedClassNames;
@@ -86,20 +89,22 @@ public class SearchContext<T> implements Component {
 	void executeSearch(Consumer<SearchContext<T>> searcher) {
 		if (searchConfig.waitForSearchEnding) {
 			searcher.accept(this);
-			searchTaskFinished = true;
 		} else {
-			searchTask = CompletableFuture.runAsync(() -> {
+			searchTask = BackgroundExecutor.createTask(() -> {
 				searcher.accept(this);
-				searchTaskFinished = true;
-			});
+			}).submit();
 		}
 	}
 	
 	void waitForSearchEnding() {
 		try {
-			searchTask.get();
+			QueuedTasksExecutor.Task searchTask = this.searchTask;
+			if (searchTask != null) {
+				searchTask.waitForFinish();
+				this.searchTask = null;
+			}
 		} catch (Throwable exc) {
-			throw Throwables.toRuntimeException(exc);
+			Throwables.throwException(exc);
 		}
 	}
 	
@@ -185,7 +190,7 @@ public class SearchContext<T> implements Component {
 	}
 	
 	<O> O execute(ThrowingSupplier<O, Throwable> supplier, Supplier<O> defaultValueSupplier, Supplier<String> classNameSupplier, boolean isARecursiveCall) {
-		return ThrowingSupplier.get(() -> {
+		return Executor.get(() -> {
 			try {
 				return supplier.get();
 			} catch (ClassNotFoundException | NoClassDefFoundError exc) {
@@ -198,7 +203,7 @@ public class SearchContext<T> implements Component {
 									if (pathScannerClassLoaderScannedPaths.isEmpty()) {
 										pathScannerClassLoader.scanPathsAndAddAllByteCodesFound(
 											getPathsToBeScanned(),
-											searchConfig.isCheckForAddedClassesEnabled() && pathScannerClassLoaderScannedPaths.isEmpty()
+											searchConfig.getCheckForAddedClassesPredicate().and(path -> !pathScannerClassLoaderScannedPaths.contains(path))
 										);
 										pathScannerClassLoaderScannedPaths.addAll(getPathsToBeScanned());
 									}
@@ -211,11 +216,11 @@ public class SearchContext<T> implements Component {
 						}
 					} 
 				} else {
-					logError("Could not retrieve className from exception", exc);
+					ManagedLoggersRepository.logError(getClass()::getName, "Could not retrieve className from exception", exc);
 				}
 				return defaultValueSupplier.get();
-			} catch (ClassFormatError | ClassCircularityError | IncompatibleClassChangeError | VerifyError | java.lang.InternalError exc) {
-				logWarn("Could not load class {}: {}", classNameSupplier.get(), exc.toString());
+			} catch (LinkageError | SecurityException | InternalError exc) {
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Could not load class {}: {}", classNameSupplier.get(), exc.toString());
 			}
 			return defaultValueSupplier.get();
 		});
@@ -252,7 +257,7 @@ public class SearchContext<T> implements Component {
 	}
 	
 	<C extends SearchConfigAbst<C>> ClassCriteria.TestContext test(Class<?> cls) {
-		return (ClassCriteria.TestContext) execute(
+		return execute(
 			() -> searchConfig.getClassCriteria().testWithFalseResultForNullEntityOrTrueResultForNullPredicate(cls), 
 			() -> searchConfig.getClassCriteria().testWithFalseResultForNullEntityOrFalseResultForNullPredicate(null), 
 			() -> cls.getName()
@@ -261,24 +266,20 @@ public class SearchContext<T> implements Component {
 	
 	@Override
 	public void close() {
-		if (searchConfig.deleteFoundItemsOnClose) {
-			itemsFoundFlatMap.clear();
-			itemsFoundMap.entrySet().stream().forEach(entry -> {
-				entry.getValue().clear();
-			});
-		}
-		itemsFoundFlatMap = null;
-		itemsFoundMap = null;
-		searchConfig.close();
-		searchConfig = null;
 		pathScannerClassLoader.unregister(this, true);
 		if (sharedPathScannerClassLoader != null) {
 			sharedPathScannerClassLoader.unregister(this, true);
 		}
+		itemsFoundFlatMap = null;
+		itemsFoundMap = null;
+		itemsFound = null;
+		searchConfig.close();
+		searchConfig = null;
 		pathScannerClassLoader = null;
 		sharedPathScannerClassLoader = null;
 		skippedClassNames.clear();
 		skippedClassNames = null;
+		searchTask = null;
 	}
 	
 	

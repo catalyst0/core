@@ -28,689 +28,351 @@
  */
 package org.burningwave.core.classes;
 
-import static org.burningwave.core.assembler.StaticComponentContainer.IterableObjectHelper;
-import static org.burningwave.core.assembler.StaticComponentContainer.Paths;
-import static org.burningwave.core.assembler.StaticComponentContainer.SourceCodeHandler;
-import static org.burningwave.core.assembler.StaticComponentContainer.Strings;
-import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
-
-import java.io.Serializable;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
-import java.util.AbstractMap;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Predicate;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
-import javax.tools.Diagnostic;
-import javax.tools.FileObject;
-import javax.tools.ForwardingJavaFileManager;
-import javax.tools.JavaCompiler;
-import javax.tools.JavaCompiler.CompilationTask;
-import javax.tools.JavaFileObject;
-import javax.tools.JavaFileObject.Kind;
-import javax.tools.SimpleJavaFileObject;
-import javax.tools.ToolProvider;
-
-import org.burningwave.core.Component;
-import org.burningwave.core.classes.ClassPathHunter.SearchResult;
-import org.burningwave.core.function.ThrowingRunnable;
-import org.burningwave.core.io.ByteBufferOutputStream;
+import org.burningwave.core.Closeable;
+import org.burningwave.core.concurrent.QueuedTasksExecutor.ProducerTask;
 import org.burningwave.core.io.FileSystemItem;
 import org.burningwave.core.io.PathHelper;
 import org.burningwave.core.iterable.Properties;
 
-public class JavaMemoryCompiler implements Component {
+public interface JavaMemoryCompiler {
 	
 	public static class Configuration {
 		
 		public static class Key {
-			
-			public static final String CLASS_PATH_HUNTER_SEARCH_CONFIG_CHECK_FILE_OPTIONS = "java-memory-compiler.class-path-hunter.search-config.check-file-option";
 			public static final String CLASS_PATHS =  PathHelper.Configuration.Key.PATHS_PREFIX + "java-memory-compiler.class-paths";
+			public static final String BLACK_LISTED_CLASS_PATHS =  PathHelper.Configuration.Key.PATHS_PREFIX + "java-memory-compiler.black-listed-class-paths";
 			public static final String ADDITIONAL_CLASS_PATHS =  PathHelper.Configuration.Key.PATHS_PREFIX + "java-memory-compiler.additional-class-paths";
 			public static final String CLASS_REPOSITORIES =  PathHelper.Configuration.Key.PATHS_PREFIX + "java-memory-compiler.class-repositories";
+			public static final String ADDITIONAL_CLASS_REPOSITORIES =  PathHelper.Configuration.Key.PATHS_PREFIX + "java-memory-compiler.additional-class-repositories";
 		}
 		
 		public final static Map<String, Object> DEFAULT_VALUES;
 		
 		static {
-			DEFAULT_VALUES = new HashMap<>();
-			DEFAULT_VALUES.put(
-				Key.CLASS_PATH_HUNTER_SEARCH_CONFIG_CHECK_FILE_OPTIONS,
-				"${" + ClassPathScannerAbst.Configuration.Key.DEFAULT_CHECK_FILE_OPTIONS + "}"
-			);
-			DEFAULT_VALUES.put(
+			Map<String, Object> defaultValues = new HashMap<>();
+
+			defaultValues.put(
 				Key.CLASS_PATHS,
-				PathHelper.Configuration.Key.MAIN_CLASS_PATHS_PLACE_HOLDER + PathHelper.Configuration.Key.PATHS_SEPARATOR + 
-				"${" + PathHelper.Configuration.Key.MAIN_CLASS_PATHS_EXTENSION + "}" + PathHelper.Configuration.Key.PATHS_SEPARATOR + 
+				PathHelper.Configuration.Key.MAIN_CLASS_PATHS_PLACE_HOLDER + PathHelper.Configuration.getPathsSeparator() + 
+				"${" + PathHelper.Configuration.Key.MAIN_CLASS_PATHS_EXTENSION + "}" + PathHelper.Configuration.getPathsSeparator() + 
 				"${" + Configuration.Key.ADDITIONAL_CLASS_PATHS + "}"
 			);
+			defaultValues.put(
+				Key.CLASS_REPOSITORIES,
+				"${" + PathHelper.Configuration.Key.MAIN_CLASS_REPOSITORIES + "}" + PathHelper.Configuration.getPathsSeparator() +
+				"${" + Configuration.Key.ADDITIONAL_CLASS_REPOSITORIES + "}" + PathHelper.Configuration.getPathsSeparator()
+			);
+			defaultValues.put(
+				Key.BLACK_LISTED_CLASS_PATHS,
+				"//${paths.main-class-paths}/..//children:.*?surefirebooter\\d{0,}\\.jar;"
+			);			
+			
+			DEFAULT_VALUES = Collections.unmodifiableMap(defaultValues);
 		}
 	}
-	
-	private PathHelper pathHelper;
-	private ClassPathHunter classPathHunter;
-	private JavaCompiler compiler;
-	private FileSystemItem compiledClassesClassPath;
-	private FileSystemItem classPathHunterBasePathForCompressedLibs;
-	private FileSystemItem classPathHunterBasePathForCompressedClasses;
-	private Properties config;	
-	
-	private JavaMemoryCompiler(
-		PathHelper pathHelper,
-		ClassPathHunter classPathHunter,
-		Properties config
-	) {
-		this.pathHelper = pathHelper;
-		this.classPathHunter = classPathHunter;
-		this.compiler = ToolProvider.getSystemJavaCompiler();
-		this.compiledClassesClassPath = FileSystemItem.of(getOrCreateTemporaryFolder("compiled"));
-		this.classPathHunterBasePathForCompressedLibs = FileSystemItem.of(getOrCreateTemporaryFolder("lib"));
-		this.classPathHunterBasePathForCompressedClasses = FileSystemItem.of(getOrCreateTemporaryFolder("classes"));
-		this.config = config;
-		listenTo(config);
-	}	
 	
 	public static JavaMemoryCompiler create(
 		PathHelper pathHelper,
-		ClassPathHunter classPathHunter,
+		ClassPathHelper classPathHelper,
 		Properties config
 	) {
-		return new JavaMemoryCompiler(pathHelper, classPathHunter, config);
+		return new JavaMemoryCompilerImpl(pathHelper, classPathHelper, config);
 	}
+
+	public ProducerTask<Compilation.Result> compile(Compilation.Config config);	
 	
-	public 	CompilationResult compile(Collection<String> sources) {
-		return compile(sources, true);
-	}
-	
-	public 	CompilationResult compile(Collection<String> sources, boolean storeCompiledClasses) {
-		return compile(
-			CompileConfig.withSources(sources).setClassPaths(
-				pathHelper.getAllMainClassPaths()
-			).setClassRepositoriesWhereToSearchNotFoundClasses(
-				pathHelper.getPaths(JavaMemoryCompiler.Configuration.Key.CLASS_REPOSITORIES)
-			).storeCompiledClasses(
-				storeCompiledClasses
-			)
-		);
-	}
-	
-	public CompilationResult compile(CompileConfig config) {
-		return compile(
-			config.getSources(),
-			IterableObjectHelper.merge(
-				config::getClassPaths,
-				config::getAdditionalClassPaths,
-				() -> 
-					pathHelper.getPaths(
-						Configuration.Key.CLASS_PATHS
-					)
-			),
-			IterableObjectHelper.merge(
-				config::getClassRepositoriesWhereToSearchNotFoundClasses,
-				config::getAdditionalRepositoriesWhereToSearchNotFoundClasses,
-				() -> {
-					Collection<String> classRepositories = pathHelper.getPaths(
-						Configuration.Key.CLASS_REPOSITORIES
-					);
-					if (!classRepositories.isEmpty()) {
-						config.neededClassesPreventiveSearch(true);
-					}
-					return classRepositories;
+	public static class Compilation {
+		
+		public static class Config {
+			private Collection<String> sources;
+			
+			private Collection<String> classPaths;
+			private Collection<String> additionalClassPaths;
+			
+			private Collection<String> blackListedClassPaths;
+			private Collection<String> additionalBlackListedClassPaths;
+			
+			private Collection<String> classRepositories;
+			private Collection<String> additionalClassRepositories;
+			
+			private String compiledClassesStorage;
+			private boolean useTemporaryFolderForStoring;
+			
+			private Config() {
+				this.sources = new HashSet<>();
+				storeCompiledClassesToTemporaryFolder("common");
+			}
+			
+			@SafeVarargs
+			public final static Config withSources(Collection<String>... sourceCollections) {
+				Config compileConfig = new Config();
+				for (Collection<String> sourceCollection : sourceCollections) {
+					compileConfig.sources.addAll(sourceCollection);
 				}
-			),
-			config.isNeededClassesPreventiveSearchEnabled(),
-			config.isStoringCompiledClassesEnabled()
-		);
-	}
-	
-	private CompilationResult compile(
-		Collection<String> sources, 
-		Collection<String> classPaths, 
-		Collection<String> classRepositoriesPaths,
-		boolean neededClassesPreventiveSearchEnabled,
-		boolean storeCompiledClasses
-	) {	
-		logInfo("Try to compile: \n\n{}\n",String.join("\n", sources));
-		if (neededClassesPreventiveSearchEnabled) {
-			classPaths = computeClassPaths(classRepositoriesPaths, sources);
-		}
-		Collection<JavaMemoryCompiler.MemorySource> memorySources = new ArrayList<>();
-		sourcesToMemorySources(sources, memorySources);
-		try (Compilation.Context context = Compilation.Context.create(
-				this, classPathHunter, 
-				memorySources, 
-				new ArrayList<>(classPaths), 
-				new ArrayList<>(classRepositoriesPaths)
-			)
-		) {
-			Map<String, ByteBuffer> compiledFiles = _compile(context, null);
-			if (!compiledFiles.isEmpty() && storeCompiledClasses) {
-				compiledFiles.forEach((className, byteCode) -> {
-					JavaClass javaClass = JavaClass.create(byteCode);
-					javaClass.storeToClassPath(compiledClassesClassPath.getAbsolutePath());
-				});
-			}			
-			return new CompilationResult(compiledClassesClassPath, compiledFiles);
-		}
-	}
-	
-	private Collection<String> computeClassPaths(Collection<String> classRepositories, Collection<String> sources) {
-		Collection<String> imports = new HashSet<>();
-		for (String sourceCode : sources) {
-			imports.addAll(SourceCodeHandler.extractImports(sourceCode));
-		}	
-		Collection<String> classPaths = new HashSet<>();
-		Collection<String> toBeAdjuested = new HashSet<>(); 
-		for (String classPath : classRepositories) {
-			FileSystemItem fIS = FileSystemItem.ofPath(classPath);
-			if (fIS.exists()) {
-				if (fIS.isArchive()) {
-					toBeAdjuested.add(fIS.getAbsolutePath());
+				return compileConfig;
+			}
+			
+			@SafeVarargs
+			public final static Config withSource(String... sources) {
+				return withSources(Arrays.asList(sources));
+			}
+			
+			@SafeVarargs
+			public final static Config forUnitSourceGenerator(UnitSourceGenerator... sources) {
+				return forUnitSourceGenerators(Arrays.asList(sources));
+			}
+			
+			@SafeVarargs
+			public final static Config forUnitSourceGenerators(Collection<UnitSourceGenerator>... sourceCollections) {
+				Config compileConfig = new Config();
+				for (Collection<UnitSourceGenerator> sourceCollection : sourceCollections) {
+					compileConfig.sources.addAll(sourceCollection.stream().map(source -> source.make()).collect(Collectors.toList()));
+				}
+				return compileConfig;
+			}
+			
+			public Config storeCompiledClasses(boolean flag) {
+				if (flag) {
+					if (compiledClassesStorage == null) {
+						storeCompiledClassesToTemporaryFolder("common");
+					}
 				} else {
-					classPaths.add(fIS.getAbsolutePath());
+					compiledClassesStorage = null;
 				}
-			}
-		}
-		if (!toBeAdjuested.isEmpty()) {
-			FileSystemItem.CheckingOption checkFileOption = 
-				FileSystemItem.CheckingOption.forLabel(config.resolveStringValue(
-					Configuration.Key.CLASS_PATH_HUNTER_SEARCH_CONFIG_CHECK_FILE_OPTIONS,
-					JavaMemoryCompiler.Configuration.DEFAULT_VALUES
-				)
-			);
-			try(SearchResult result = classPathHunter.loadInCache(
-					SearchConfig.forPaths(toBeAdjuested).withScanFileCriteria(
-						FileSystemItem.Criteria.forClassTypeFiles(checkFileOption)
-					).by(ClassCriteria.create().className(
-						className -> 
-							imports.contains(className)
-						)
-					).optimizePaths(
-						true
-					)
-				).find()
-			) {	
-				Collection<FileSystemItem> effectiveClassPaths = result.getClassPaths();
-				if (!effectiveClassPaths.isEmpty()) {
-					for (FileSystemItem fsObject : effectiveClassPaths) {
-						if (fsObject.isCompressed()) {					
-							ThrowingRunnable.run(() -> {
-								synchronized (this) {
-									FileSystemItem classPathBasePath = fsObject.isArchive() ?
-										classPathHunterBasePathForCompressedLibs :
-										classPathHunterBasePathForCompressedClasses
-									;
-									FileSystemItem classPath = FileSystemItem.ofPath(
-										classPathBasePath.getAbsolutePath() + "/" + fsObject.getName()
-									);
-									if (!classPath.refresh().exists()) {
-										fsObject.copyTo(classPathBasePath.getAbsolutePath());
-									}
-									classPaths.add(
-										classPath.getAbsolutePath()
-									);
-									//Free memory
-									classPath.reset();
-								}
-							});
-						} else {
-							classPaths.add(fsObject.getAbsolutePath());
-						}
-					}
-				}
-			}
-		}
-		return classPaths;
-	}
-
-	private void sourcesToMemorySources(Collection<String> sources, Collection<MemorySource> memorySources) {
-		for (String source : sources) {
-			String className = SourceCodeHandler.extractClassName(source);
-			try {
-				memorySources.add(new MemorySource(Kind.SOURCE, className, source));
-			} catch (URISyntaxException eXC) {
-				throw Throwables.toRuntimeException("Class name \"" + className + "\" is not valid");
-			}
-		}
-		
-	}
-
-
-	private Map<String, ByteBuffer> _compile(Compilation.Context context, Throwable thr) {
-		List<String> options = new ArrayList<String>();
-		if (!context.options.isEmpty()) {
-			context.options.forEach((key, val) -> {
-				options.add(key);
-				Optional.ofNullable(val).ifPresent(value -> {
-					options.add(value);
-				});
-				
-			});
-		}
-		try (JavaMemoryCompiler.MemoryFileManager memoryFileManager = new MemoryFileManager(compiler)) {
-			CompilationTask task = compiler.getTask(
-				null, memoryFileManager,
-				new DiagnosticListener(context), options, null,
-				new ArrayList<>(context.sources)
-			);
-			boolean done = false;
-			Throwable exception = null;
-			try {
-				done = task.call();
-			} catch (Throwable exc) {
-				if (thr != null && thr.getMessage().equals(exc.getMessage())) {
-					throw exc;
-				}
-				exception = exc;
-			}
-			if (!done) {
-				return _compile(context, exception);
-			} else {
-				return memoryFileManager.getCompiledFiles().stream().collect(
-					Collectors.toMap(compiledFile -> 
-						compiledFile.getName(), compiledFile ->
-						compiledFile.toByteBuffer()
-					)
-				);
-			}
-		}
-	}
-	
-	static class DiagnosticListener implements javax.tools.DiagnosticListener<JavaFileObject>, Serializable, Component {
-
-		private static final long serialVersionUID = 4404913684967693355L;
-		
-		private Compilation.Context context;
-		
-		DiagnosticListener (Compilation.Context context) {
-			this.context = context;
-		}
-		
-		@Override
-		public void report(Diagnostic<? extends JavaFileObject> diagnostic) {
-			String message = diagnostic.getMessage(Locale.ENGLISH);
-			if (message.contains("unchecked or unsafe operations") || message.contains("Recompile with -Xlint:unchecked")) {
-				context.options.put("-Xlint:", "unchecked");
-				return;
-			}
-			Collection<FileSystemItem> fsObjects = null;
-			
-			Map.Entry<String, Predicate<Class<?>>> classNameAndClassPredicate = getClassPredicateBagFromErrorMessage(message);
-			String packageName = null;
-			if (classNameAndClassPredicate != null) {
-				try {
-					fsObjects = context.findForClassName(classNameAndClassPredicate.getValue());
-				} catch (Exception e) {
-					logError("Exception occurred", e);
-				}
-			} else if (Strings.isNotEmpty(packageName = getPackageNameFromErrorMessage(message))) {			
-				try {
-					fsObjects = context.findForPackageName(packageName);
-				} catch (Exception e) {
-					logError("Exception occurred", e);
-				}
-			} else {
-				throw new UnknownCompilerErrorMessageException(message);
-			}
-			if (fsObjects == null || fsObjects.isEmpty()) {
-				throw Throwables.toRuntimeException(
-					Optional.ofNullable(classNameAndClassPredicate).map(bag -> "Class or package \"" + bag.getKey() + "\" not found").orElseGet(() -> message)
-				);
-			}
-			fsObjects.forEach((fsObject) -> {
-				if (fsObject.isCompressed()) {					
-					ThrowingRunnable.run(() -> {
-						synchronized (context.javaMemoryCompiler) {
-							FileSystemItem classPathBasePath = fsObject.isArchive() ?
-								context.javaMemoryCompiler.classPathHunterBasePathForCompressedLibs :
-								context.javaMemoryCompiler.classPathHunterBasePathForCompressedClasses
-							;
-							FileSystemItem classPath = FileSystemItem.ofPath(
-								classPathBasePath.getAbsolutePath() + "/" + fsObject.getName()
-							);
-							if (!classPath.refresh().exists()) {
-								fsObject.copyTo(classPathBasePath.getAbsolutePath());
-							}
-							context.addToClassPath(
-								classPath.getAbsolutePath()
-							);
-							//Free memory
-							classPath.reset();
-						}
-					});
-				} else {
-					context.addToClassPath(fsObject.getAbsolutePath());
-				}
-			});
-		}
-
-		private Map.Entry<String, Predicate<Class<?>>> getClassPredicateBagFromErrorMessage(String message) {
-			if (message.indexOf("class file for") != -1 && message.indexOf("not found") != -1) {
-				String objName = message.substring(message.indexOf("for ") + 4);
-				objName = objName.substring(0, objName.indexOf(" "));
-				final String className = objName;
-				return new AbstractMap.SimpleEntry<>(objName, (cls) -> cls.getName().equals(className));
-			} else if(message.indexOf("class ") != -1 && message.indexOf("package ") != -1 ){
-				String className = message.substring(message.indexOf("class ")+6);
-				className = className.substring(0, className.indexOf("\n"));
-				String packageName = message.substring(message.indexOf("package") + 8);
-				final String objName = packageName+"."+className;
-				return new AbstractMap.SimpleEntry<>(objName, (cls) -> cls.getName().equals(objName));
-			} else if(message.indexOf("symbol: class") != -1) {
-				String className = message.substring(message.indexOf("class ")+6);
-				final String objName = className;
-				return new AbstractMap.SimpleEntry<>(objName, (cls) -> cls.getSimpleName().equals(objName));
-			}
-			return null;
-		}
-		
-		private String getPackageNameFromErrorMessage(String message) {
-			String objName = null;
-			if (message.indexOf("package exists in another module") == -1 && message.indexOf("cannot be accessed from outside package") == -1) {
-				if (message.indexOf("package ") != -1){
-					objName = message.substring(message.indexOf("package") + 8);
-					int firstOccOfSpaceIdx = objName.indexOf(" ");
-					if(firstOccOfSpaceIdx!=-1) {
-						objName = objName.substring(0, firstOccOfSpaceIdx);
-					}
-				}
-			}
-			return objName;
-		}
-		
-	}
-	
-	public static class UnknownCompilerErrorMessageException extends RuntimeException {
-
-		private static final long serialVersionUID = 1149980549799104408L;
-
-		public UnknownCompilerErrorMessageException(String s) {
-			super(s);
-		}
-	}		
-	
-	public static class MemorySource extends SimpleJavaFileObject implements Serializable {
-
-		private static final long serialVersionUID = 4669403234662034315L;
-		
-		private final String content;
-		private final String name;
-		
-	    final static String PREFIX = "memo:///";
-	    public MemorySource(Kind kind, String name, String content) throws URISyntaxException {
-	        super(new URI(PREFIX + name.replace('.', '/') + kind.extension), kind);
-	        this.name = name;
-	        this.content = content;
-	    }
-	    
-	    public String getName() {
-	    	return this.name;
-	    }
-	    
-	    @Override
-	    public CharSequence getCharContent(boolean ignore) {
-	        return this.content;
-	    }
-	}
-	
-	public static class MemoryFileObject extends SimpleJavaFileObject implements Component {
-		
-		private ByteBufferOutputStream baos = new ByteBufferOutputStream(false);
-		private final String name;
-		
-	    MemoryFileObject(String name, Kind kind) {
-	        super(URI.create("memory:///" + name.replace('.', '/') + kind.extension), kind);
-	        this.name = name;
-	    }
-	    
-	    public String getPath() {
-	    	return uri.getPath();
-	    }
-	    
-	    public String getName() {
-	    	return this.name;
-	    }
-	    
-	    public ByteBuffer toByteBuffer() {
-	    	return baos.toByteBuffer();
-	    }
-	    
-	    public byte[] toByteArray() {
-	    	return baos.toByteArray();
-	    }
-
-	    @Override
-	    public ByteBufferOutputStream openOutputStream() {
-	        return this.baos;
-	    }
-	    
-	    @Override
-		public void close() {
-	    	if (baos != null) {
-	    		ThrowingRunnable.run(() -> {
-	    			baos.markAsCloseable(true);
-					baos.close();
-				});
-	    	}
-	    	baos = null;    	
-	    }
-	}
-	
-	@SuppressWarnings({ "rawtypes", "unchecked" })
-	static class MemoryFileManager extends ForwardingJavaFileManager implements Component {
-		
-		private List<MemoryFileObject> compiledFiles;
-				
-		MemoryFileManager(JavaCompiler compiler) {
-	        super(compiler.getStandardFileManager(null, null, null));
-	        compiledFiles = new CopyOnWriteArrayList<>();
-	    }
-		
-		@Override
-	    public MemoryFileObject getJavaFileForOutput
-	            (Location location, String name, Kind kind, FileObject source) {
-	        MemoryFileObject mc = new MemoryFileObject(name, kind);
-	        this.compiledFiles.add(mc);
-	        return mc;
-	    }
-		
-		List<MemoryFileObject> getCompiledFiles() {
-			return compiledFiles;
-		}
-		
-		@Override
-		public void close() {
-			compiledFiles.forEach(compiledFile -> 
-				compiledFile.close()
-			);
-			compiledFiles.clear();
-			ThrowingRunnable.run(() -> {
-				super.close();
-			});
-		}
-	}
-	
-	private static class Compilation {
-		private static class Context implements Component {
-			
-			private Map<String, String> options;
-			private Collection<MemorySource> sources;
-			private ClassPathHunter classPathHunter;
-			private Collection<SearchResult> classPathsSearchResults;
-			private Collection<String> classRepositoriesPaths;
-			private JavaMemoryCompiler javaMemoryCompiler;
-			
-			
-			void addToClassPath(String path) {
-				if (Strings.isNotBlank(path)) {
-					options.put("-classpath", Optional.ofNullable(options.get("-classpath")).orElse("") + Paths.clean(path) + System.getProperty("path.separator"));
-				}
+				return this;
 			}
 			
-			private Context(
-				JavaMemoryCompiler javaMemoryCompiler,
-				ClassPathHunter classPathHunter,
-				Collection<MemorySource> sources,
-				Collection<String> classPaths,
-				Collection<String> classRepositories
-			) {
-				this.javaMemoryCompiler = javaMemoryCompiler;
-				options =  new LinkedHashMap<>();
-				this.sources = sources;
-				this.classPathHunter = classPathHunter;
-				if (classPaths != null) {
-					for(String classPath : classPaths) {
-						addToClassPath(classPath);
-					}
-				}
-				this.classRepositoriesPaths = classRepositories;
-				this.classPathsSearchResults = new LinkedHashSet<>();
+			public Config storeCompiledClassesToTemporaryFolder(String folderName) {
+				compiledClassesStorage = folderName;
+				useTemporaryFolderForStoring = true;
+				return this;
 			}
 			
-			private static Context create(
-				JavaMemoryCompiler javaMemoryCompiler,
-				ClassPathHunter classPathHunter,
-				Collection<MemorySource> sources,
-				Collection<String> classPaths,
-				Collection<String> classRepositories
-			) {
-				return new Context(javaMemoryCompiler, classPathHunter, sources, classPaths, classRepositories);
+			public Config storeCompiledClassesTo(String folderName) {
+				compiledClassesStorage = folderName;
+				useTemporaryFolderForStoring = false;
+				return this;
 			}
 			
-			public Collection<FileSystemItem> findForPackageName(String packageName) throws Exception {
-				FileSystemItem.CheckingOption checkFileOption = 
-					FileSystemItem.CheckingOption.forLabel(javaMemoryCompiler.config.resolveStringValue(
-						Configuration.Key.CLASS_PATH_HUNTER_SEARCH_CONFIG_CHECK_FILE_OPTIONS,
-						JavaMemoryCompiler.Configuration.DEFAULT_VALUES
-					)
-				);
+			public Config storeCompiledClassesToNewTemporaryFolder() {
+				return storeCompiledClassesToTemporaryFolder(UUID.randomUUID().toString());
+			}
 
-				SearchResult result = classPathHunter.findBy(
-					SearchConfig.withoutUsingCache().addPaths(
-						javaMemoryCompiler.compiledClassesClassPath.getAbsolutePath()
-					).by(
-						ClassCriteria.create().packageName((iteratedClassPackageName) ->
-							Objects.equals(iteratedClassPackageName, packageName)
-						)
-					).withScanFileCriteria(
-						FileSystemItem.Criteria.forClassTypeFiles(checkFileOption)
-					).optimizePaths(
-						true
-					)
-				);
-				
-				classPathsSearchResults.add(result);
-				if (result.getClassPaths().isEmpty()) {
-					result = classPathHunter.loadInCache(
-						SearchConfig.forPaths(classRepositoriesPaths).by(
-							ClassCriteria.create().packageName((iteratedClassPackageName) ->
-								Objects.equals(iteratedClassPackageName, packageName)									
-							)
-						).withScanFileCriteria(
-							FileSystemItem.Criteria.forClassTypeFiles(checkFileOption)
-						).optimizePaths(
-							true
-						)
-					).find();
-					classPathsSearchResults.add(result);
+
+		////////////////////	
+			
+			@SafeVarargs
+			public final Config setClassPaths(Collection<String>... classPathCollections) {
+				if (classPaths == null) {
+					classPaths = new HashSet<>();
 				}
-				return result.getClassPaths();
+				for (Collection<String> classPathCollection : classPathCollections) {
+					classPaths.addAll(classPathCollection);
+				}
+				return this;
 			}
 			
-			public Collection<FileSystemItem> findForClassName(Predicate<Class<?>> classPredicate) throws Exception {
-				FileSystemItem.CheckingOption checkFileOption = 
-					FileSystemItem.CheckingOption.forLabel(javaMemoryCompiler.config.resolveStringValue(
-						Configuration.Key.CLASS_PATH_HUNTER_SEARCH_CONFIG_CHECK_FILE_OPTIONS,
-						JavaMemoryCompiler.Configuration.DEFAULT_VALUES
-					)
-				);
-				SearchResult result = classPathHunter.findBy(
-					SearchConfig.withoutUsingCache().addPaths(javaMemoryCompiler.compiledClassesClassPath.getAbsolutePath()).by(
-						ClassCriteria.create().allThat(classPredicate)
-					).withScanFileCriteria(
-						FileSystemItem.Criteria.forClassTypeFiles(checkFileOption)
-					).optimizePaths(
-						true
-					)
-				);
-				classPathsSearchResults.add(result);
-				if (result.getClassPaths().isEmpty()) {
-					result = classPathHunter.loadInCache(
-						SearchConfig.forPaths(classRepositoriesPaths).by(
-							ClassCriteria.create().allThat(classPredicate)
-						).withScanFileCriteria(
-							FileSystemItem.Criteria.forClassTypeFiles(checkFileOption)
-						).optimizePaths(
-							true
-						)
-					).find();
-					classPathsSearchResults.add(result);
-				}
-				return result.getClassPaths();
+			@SafeVarargs
+			public final Config setClassPaths(String... classPaths) {
+				return setClassPaths(Arrays.asList(classPaths));
 			}
+
+		////////////////////	
+			
+			@SafeVarargs
+			public final Config addClassPaths(Collection<String>... classPathCollections) {
+				if (additionalClassPaths == null) {
+					additionalClassPaths = new HashSet<>();
+				}
+				for (Collection<String> classPathCollection : classPathCollections) {
+					additionalClassPaths.addAll(classPathCollection);
+				}
+				return this;
+			}
+			
+			@SafeVarargs
+			public final Config addClassPaths(String... classPaths) {
+				return addClassPaths(Arrays.asList(classPaths));
+			}
+
+		////////////////////	
+			
+			@SafeVarargs
+			public final Config setClassRepositories(Collection<String>... classPathCollections) {
+				if (classRepositories == null) {
+					classRepositories = new HashSet<>();
+				}
+				for (Collection<String> classPathCollection : classPathCollections) {
+					classRepositories.addAll(classPathCollection);
+				}
+				return this;
+			}
+			
+			@SafeVarargs
+			public final Config setClassRepository(String... classPaths) {
+				return setClassRepositories(Arrays.asList(classPaths));
+			}
+
+		////////////////////	
+			
+			@SafeVarargs
+			public final Config addClassRepositories(Collection<String>... classPathCollections) {
+				if (additionalClassRepositories == null) {
+					additionalClassRepositories = new HashSet<>();
+				}
+				for (Collection<String> classPathCollection : classPathCollections) {
+					additionalClassRepositories.addAll(classPathCollection);
+				}
+				return this;
+			}
+			
+			@SafeVarargs
+			public final Config addClassRepository(String... classPaths) {
+				return addClassRepositories(Arrays.asList(classPaths));
+			}
+
+		////////////////////
+			
+		////////////////////	
+			
+			@SafeVarargs
+			public final Config setBlackListedClassPaths(Collection<String>... classPathCollections) {
+				if (blackListedClassPaths == null) {
+					blackListedClassPaths = new HashSet<>();
+				}
+				for (Collection<String> classPathCollection : classPathCollections) {
+					blackListedClassPaths.addAll(classPathCollection);
+				}
+				return this;
+			}
+			
+			@SafeVarargs
+			public final Config setBlackListedClassPaths(String... classPaths) {
+				return setBlackListedClassPaths(Arrays.asList(classPaths));
+			}
+
+		////////////////////	
+			
+			@SafeVarargs
+			public final Config addBlackListedClassPaths(Collection<String>... classPathCollections) {
+				if (additionalBlackListedClassPaths == null) {
+					additionalBlackListedClassPaths = new HashSet<>();
+				}
+				for (Collection<String> classPathCollection : classPathCollections) {
+					additionalBlackListedClassPaths.addAll(classPathCollection);
+				}
+				return this;
+			}
+			
+			@SafeVarargs
+			public final Config addBlackListedClassPaths(String... classPaths) {
+				return addBlackListedClassPaths(Arrays.asList(classPaths));
+			}
+
+		////////////////////
+			
+			Collection<String> getSources() {
+				return sources;
+			}
+
+			Collection<String> getClassPaths() {
+				return classPaths;
+			}
+
+			Collection<String> getAdditionalClassPaths() {
+				return additionalClassPaths;
+			}
+
+			Collection<String> getClassRepositories() {
+				return classRepositories;
+			}
+
+			Collection<String> getAdditionalClassRepositories() {
+				return additionalClassRepositories;
+			}
+			
+			Collection<String> getBlackListedClassPaths() {
+				return blackListedClassPaths;
+			}
+
+			Collection<String> getAdditionalBlackListedClassPaths() {
+				return additionalBlackListedClassPaths;
+			}
+			
+			boolean isStoringCompiledClassesEnabled() {
+				return compiledClassesStorage != null;
+			}
+			
+			String getCompiledClassesStorage() {
+				return compiledClassesStorage;
+			}
+
+			boolean useTemporaryFolderForStoring() {
+				return useTemporaryFolderForStoring;
+			}
+		
+		}
+		
+		
+		
+		public static class Result implements Closeable {
+			private FileSystemItem classPath;
+			private Map<String, ByteBuffer> compiledFiles;
+			private Collection<String> dependencies;
+			
+			
+			Result(FileSystemItem classPath, Map<String, ByteBuffer> compiledFiles, Collection<String> classPaths) {
+				this.classPath = classPath;
+				this.compiledFiles = compiledFiles;
+				this.dependencies = classPaths;
+			}
+
+
+			public FileSystemItem getClassPath() {
+				return classPath;
+			}
+
+
+			public Map<String, ByteBuffer> getCompiledFiles() {
+				return compiledFiles;
+			}
+
+
+			public Collection<String> getDependencies() {
+				return dependencies;
+			}
+
 
 			@Override
 			public void close() {
-				if (!classPathsSearchResults.isEmpty()) {
-					classPathsSearchResults.stream().forEach(
-						(result)  -> result.close()
-					);
-				}
-				classPathsSearchResults = null;
-				classPathHunter = null;
-				options.clear();
-				options = null;
-				sources = null;
-				classRepositoriesPaths.clear();
-				classRepositoriesPaths = null;
-				javaMemoryCompiler = null;
+				compiledFiles.clear();
+				dependencies.clear();
+				classPath = null;
+			}	
+			
+		}
+		
+		public static class Exception extends RuntimeException {
+
+			private static final long serialVersionUID = 4515340268068466479L;
+
+			public Exception(String s) {
+				super(s);
 			}
-
-		}
-	}
-	
-	@Override
-	public void close() {
-		unregister(config);
-		compiler = null;
-		classPathHunter = null;
-		config = null;
-	}
-	
-	
-	public static class CompilationResult {
-		private FileSystemItem classPath;
-		private Map<String, ByteBuffer> compiledFiles;
-		
-		
-		private CompilationResult (FileSystemItem classPath, Map<String, ByteBuffer> compiledFiles) {
-			this.classPath = classPath;
-			this.compiledFiles = compiledFiles;
-		}
-
-
-		public FileSystemItem getClassPath() {
-			return classPath;
-		}
-
-
-		public Map<String, ByteBuffer> getCompiledFiles() {
-			return compiledFiles;
+			
+			public Exception(String s, Throwable cause) {
+				super(s, cause);
+			}
 		}	
-		
 	}
 }

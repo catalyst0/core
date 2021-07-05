@@ -28,57 +28,23 @@
  */
 package org.burningwave.core.concurrent;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import static org.burningwave.core.assembler.StaticComponentContainer.Strings;
 
-public class Mutex {
+public class TaskStateException extends Exception {
+
+	private static final long serialVersionUID = -6504561450589871045L;
 	
-	public static class Manager {
-		Map<String, Object> parallelLockMap;
-		private Object defaultMutex;
-		
-		private Manager(Object defaultMutex) {
-			this.parallelLockMap = new ConcurrentHashMap<>();
-			this.defaultMutex = defaultMutex;
-		}
-		
-		public static Manager create(Object client) {
-			return new Manager(client);
-		}
-		
-		public void enableLockForName() {
-			Map<String, Object> parallelLockMap = this.parallelLockMap;
-			if (parallelLockMap == null) {
-				synchronized(this) {
-					if ((parallelLockMap = this.parallelLockMap) == null) {
-						this.parallelLockMap = new ConcurrentHashMap<>();
-					}
-				}
-			}
-		}
-		
-		public void disableLockForName() {
-			this.parallelLockMap = null;
-		}
-		
-		public Object getMutex(String name) {
-			Object lock = defaultMutex;
-			Map<String, Object> parallelLockMap = this.parallelLockMap;
-			if (parallelLockMap != null) {
-		    	Object newLock = new Mutex();
-		    	lock = parallelLockMap.putIfAbsent(name, newLock);
-		        if (lock == null) {
-		            lock = newLock;
-		        }
-			}
-	        return lock;
-	    }
-
-		public void clear() {
-			if (parallelLockMap != null) {
-				parallelLockMap.clear();
-			}
-		}
+	
+	public TaskStateException(QueuedTasksExecutor.TaskAbst<?, ?> task, String message) {
+		super(
+			Strings.compile(
+				"{} {}{}", 
+				task,
+				message,
+				task.getCreatorInfos() != null ?
+					" and was created:" + Strings.from(task.getCreatorInfos())
+					: "" 
+			)			
+		);
 	}
-	
 }

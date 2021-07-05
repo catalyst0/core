@@ -29,101 +29,116 @@
 package org.burningwave.core.iterable;
 
 import static org.burningwave.core.assembler.StaticComponentContainer.IterableObjectHelper;
+import static org.burningwave.core.assembler.StaticComponentContainer.ManagedLoggersRepository;
 
 import java.util.Collection;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
-public class Properties extends java.util.Properties {
+import org.burningwave.core.ManagedLogger;
+
+@SuppressWarnings("unchecked")
+public class Properties extends java.util.Properties implements ManagedLogger {
 	private static final long serialVersionUID = -350748766178421942L;
 	
 	public static enum Event {
 		PUT, REMOVE
 	}
 	
-	private Collection<Listener> listeners;
+	private Set<Listener> listeners;
+	private String defaultValuesSeparator;
 	
+    public Properties(Properties defaults) {
+    	this(defaults, null);
+    }
 	
 	public Properties() {
-		super();
-		listeners = new CopyOnWriteArrayList<>();
+		this(null, null);
 	}
 	
-	public Properties(Properties defaults) {
-		super();
-		listeners = new CopyOnWriteArrayList<>();
+	public Properties(Properties defaults, String defaultValuesSeparator) {
+		super(defaults);
+		listeners = ConcurrentHashMap.newKeySet();
+		this.defaultValuesSeparator = defaultValuesSeparator;
+	}
+	
+	public String getDefaultValuesSeparator() {
+		return this.defaultValuesSeparator != null ? this.defaultValuesSeparator : IterableObjectHelper.getDefaultValuesSeparator();
 	}
 
 ////////////////////
 	
 	public <T> T resolveValue(String key) {
-		return IterableObjectHelper.resolveValue(this, key);
+		return IterableObjectHelper.resolveValue(this, key, null, defaultValuesSeparator, false, this.defaults);
 	}
 	
 	public <T> Collection<T> resolveValues(String key) {
-		return IterableObjectHelper.resolveValues(this, key);
+		return IterableObjectHelper.resolveValues(this, key, null, defaultValuesSeparator, false, this.defaults);
 	}
 	
 	public String resolveStringValue(String key) {
-		return IterableObjectHelper.resolveStringValue(this, key);
+		return IterableObjectHelper.resolveStringValue(this, key, null, defaultValuesSeparator, false, this.defaults);
 	}
 	
 	public Collection<String> resolveStringValues(String key) {
-		return IterableObjectHelper.resolveStringValues(this, key);
+		return IterableObjectHelper.resolveStringValues(this, key, null, defaultValuesSeparator, false, this.defaults);
 	}
 	
 ////////////////////
 	
-	public <T> T resolveValue(String key, Map<String, ?> defaultValues) {
-		return IterableObjectHelper.resolveValue(this, key, defaultValues);
+	public <T> T resolveValue(String key, Map<?, ?> defaultValues) {
+		return IterableObjectHelper.resolveValue(this, key, null, defaultValuesSeparator, false, defaultValues);
 	}
 	
-	public <T> Collection<T> resolveValues(String key, Map<String, ?> defaultValues) {
-		return IterableObjectHelper.resolveValues(this, key, defaultValues);
+	public <T> Collection<T> resolveValues(String key, Map<?, ?> defaultValues) {
+		return IterableObjectHelper.resolveValues(this, key, null, defaultValuesSeparator, false, defaultValues);
 	}
 	
-	public String resolveStringValue(String key, Map<String, ?> defaultValues) {
-		return IterableObjectHelper.resolveStringValue(this, key, defaultValues);
+	public String resolveStringValue(String key, Map<?, ?> defaultValues) {
+		return IterableObjectHelper.resolveStringValue(this, key, null, defaultValuesSeparator, false, defaultValues);
 	}
 	
-	public Collection<String> resolveStringValues(String key, Map<String, ?> defaultValues) {
-		return IterableObjectHelper.resolveStringValues(this, key, defaultValues);
+	public Collection<String> resolveStringValues(String key, Map<?, ?> defaultValues) {
+		return IterableObjectHelper.resolveStringValues(this, key, null, defaultValuesSeparator, false, defaultValues);
 	}
 
 ////////////////////
 	
 	public <T> T resolveValue(String key, String valuesSeparator) {
-		return IterableObjectHelper.resolveValue(this, key, valuesSeparator);
+		return IterableObjectHelper.resolveValue(this, key, valuesSeparator, defaultValuesSeparator, false, this.defaults);
 	}
 	
 	public <T> Collection<T> resolveValues(String key, String valuesSeparator) {
-		return IterableObjectHelper.resolveValues(this, key, valuesSeparator);
+		return IterableObjectHelper.resolveValues(this, key, valuesSeparator, defaultValuesSeparator, false, this.defaults);
 	}
 	
 	public String resolveStringValue(String key, String valuesSeparator) {
-		return IterableObjectHelper.resolveStringValue(this, key, valuesSeparator);
+		return IterableObjectHelper.resolveStringValue(this, key, valuesSeparator, defaultValuesSeparator, false, this.defaults);
 	}
 	
 	public Collection<String> resolveStringValues(String key, String valuesSeparator) {
-		return IterableObjectHelper.resolveStringValues(this, key, valuesSeparator);
+		return IterableObjectHelper.resolveStringValues(this, key, valuesSeparator, defaultValuesSeparator, false, this.defaults);
 	}
 
 ////////////////////
 	
 	public <T> T resolveValue(String key, String valuesSeparator, boolean deleteUnresolvedPlaceHolder) {
-		return IterableObjectHelper.resolveObjectValue(this, key, valuesSeparator, deleteUnresolvedPlaceHolder);
+		return IterableObjectHelper.resolveValue(this, key, valuesSeparator, defaultValuesSeparator, deleteUnresolvedPlaceHolder, this.defaults);
 	}
 	
 	public <T> Collection<T> resolveValues(String key, String valuesSeparator, boolean deleteUnresolvedPlaceHolder) {
-		return IterableObjectHelper.resolveObjectValues(this, key, valuesSeparator, deleteUnresolvedPlaceHolder);
+		return IterableObjectHelper.resolveValues(this, key, valuesSeparator, defaultValuesSeparator, deleteUnresolvedPlaceHolder, this.defaults);
 	}
 	
 	public String resolveStringValue(String key, String valuesSeparator, boolean deleteUnresolvedPlaceHolder) {
-		return IterableObjectHelper.resolveStringValue(this, key, valuesSeparator, deleteUnresolvedPlaceHolder);
+		return IterableObjectHelper.resolveStringValue(this, key, valuesSeparator, defaultValuesSeparator, deleteUnresolvedPlaceHolder, this.defaults);
 	}
 	
 	public Collection<String> resolveStringValues(String key, String valuesSeparator, boolean deleteUnresolvedPlaceHolder) {
-		return IterableObjectHelper.resolveStringValues(this, key, valuesSeparator, deleteUnresolvedPlaceHolder);
+		return IterableObjectHelper.resolveStringValues(this, key, valuesSeparator, defaultValuesSeparator, deleteUnresolvedPlaceHolder, this.defaults);
 	}
 
 ////////////////////
@@ -135,36 +150,69 @@ public class Properties extends java.util.Properties {
 	
 	@Override
 	public synchronized Object put(Object key, Object value) {
-		Object put = super.put(key, value);
-		notifyChange(Event.PUT, key, value);
-		return put;
+		Object oldValue = super.put(key, value);
+		notifyChange(Event.PUT, key, value, oldValue);
+		return oldValue;
 	}
 
 	@Override
 	public synchronized Object remove(Object key) {
 		Object removed = super.remove(key);
-		notifyChange(Event.REMOVE, key, removed);
+		notifyChange(Event.REMOVE, key, null, removed);
 		return removed;
 	}
 	
-	private void notifyChange(Event event, Object key, Object value) {
-		listeners.forEach((listener) -> 
-			listener.receiveNotification(this, event, key, value)
-		);
+	public Map<Object, Object> toMap(Supplier<Map<Object, Object>> mapSupplier) {
+		Map<Object, Object> allValues = mapSupplier.get();
+		if (this.defaults != null) {
+			allValues.putAll(this.defaults);
+		}
+		allValues.putAll(this);
+		return allValues;
 	}
 	
+	public String toSimplePrettyString() {
+		return toSimplePrettyString(0);
+	}
+	
+	public String toSimplePrettyString(int marginTabCount) {
+		return IterableObjectHelper.toString(toMap(TreeMap::new), marginTabCount);
+	}
+	
+	public String toPrettyString() {
+		return toPrettyString(0);
+	}
+	
+	public String toPrettyString(int marginTabCount) {
+		return IterableObjectHelper.toPrettyString(toMap(TreeMap::new), getDefaultValuesSeparator(), marginTabCount);
+	}	
+	
+	private void notifyChange(Event event, Object key, Object newValue, Object oldValue) {
+		for (Listener listener : listeners) {
+			try  {
+				listener.processChangeNotification(this, event, key, newValue, oldValue);
+			} catch (Throwable exc){
+				ManagedLoggersRepository.logError(getClass()::getName, "Exception occurred while notifying: " + event.name() + " -> (" + key + " - " + newValue + ") to " + listener, exc);
+				ManagedLoggersRepository.logWarn(getClass()::getName, "Resetting {} to previous value: {}", key, oldValue);
+				put(key, oldValue);
+			}
+		}
+	}
 	
 	public static interface Listener {
 		
-		public default void listenTo(Properties properties) {
+		
+		public default <T extends Listener> T listenTo(Properties properties) {
 			properties.listeners.add(this);
+			return (T)this;
 		}
 		
-		public default void unregister(Properties properties) {
+		public default <T extends Listener> T unregister(Properties properties) {
 			properties.listeners.remove(this);
+			return (T)this;
 		} 
 		
-		public default <K, V>void receiveNotification(Properties properties, Event event, K key, V value) {
+		public default <K, V>void processChangeNotification(Properties properties, Event event, K key, V newValue, V previousValue) {
 			
 		}
 		

@@ -30,6 +30,7 @@ package org.burningwave.core.io;
 
 import static org.burningwave.core.assembler.StaticComponentContainer.Cache;
 import static org.burningwave.core.assembler.StaticComponentContainer.Streams;
+import static org.burningwave.core.assembler.StaticComponentContainer.Synchronizer;
 import static org.burningwave.core.assembler.StaticComponentContainer.Throwables;
 
 import java.io.File;
@@ -41,9 +42,13 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
+import org.burningwave.core.Closeable;
 import org.burningwave.core.Component;
+import org.burningwave.core.ManagedLogger;
 
-public interface IterableZipContainer extends Component {
+public interface IterableZipContainer extends Closeable, ManagedLogger {
+	
+	public final static String PATH_SUFFIX = "///";
 	
 	public static IterableZipContainer create(FileInputStream file) {
 		return create(file.getAbsolutePath(), file);
@@ -64,13 +69,30 @@ public interface IterableZipContainer extends Component {
 	@SuppressWarnings("resource")
 	public static IterableZipContainer create(String absolutePath, ByteBuffer bytes) {
 		if (Streams.isJModArchive(bytes)) {
-			return Cache.pathForZipFiles.getOrUploadIfAbsent(
-				absolutePath, () -> new ZipFile(absolutePath, bytes)
-			).duplicate();
+			return createZipFile(absolutePath, bytes);
 		} else if (Streams.isArchive(bytes)) {
 			return new ZipInputStream(absolutePath, new ByteBufferInputStream(bytes));
 		}
 		return null;
+	}
+
+	static IterableZipContainer createZipFile(String absolutePath, ByteBuffer bytes) {
+		final ZipFile zipFile = (ZipFile)Cache.pathForIterableZipContainers.getOrUploadIfAbsent(
+			absolutePath, () -> new ZipFile(absolutePath, bytes)
+		);
+		try {
+			return zipFile.duplicate();
+		} catch (Throwable exc) {
+			Synchronizer.execute(ZipFile.class.getName() + "_" + absolutePath, () -> {
+				ZipFile oldZipFile = (ZipFile)Cache.pathForIterableZipContainers.get(absolutePath);
+				if (oldZipFile == null || oldZipFile == zipFile || oldZipFile.isDestroyed) {
+					Cache.pathForIterableZipContainers.upload(
+						absolutePath, () -> new ZipFile(absolutePath, bytes), true
+					);
+				}
+			});
+			return Cache.pathForIterableZipContainers.get(absolutePath).duplicate();
+		}
 	}
 	
 	@SuppressWarnings("resource")
@@ -85,16 +107,12 @@ public interface IterableZipContainer extends Component {
 			iS = new ByteBufferInputStream(Streams.toByteBuffer(inputStream));
 		}
 		if (Streams.isJModArchive(iS.toByteBuffer())) {
-			return Cache.pathForZipFiles.getOrUploadIfAbsent(
-				absolutePath, () -> new ZipFile(absolutePath, iS.toByteBuffer())
-			).duplicate();
+			return createZipFile(absolutePath, iS.toByteBuffer());
 		} else if (Streams.isArchive(iS.toByteBuffer())) {
 			return new ZipInputStream(absolutePath, new ByteBufferInputStream(iS.toByteBuffer()));
 		}
 		return null;
 	}
-
-	String ZIP_PATH_SEPARATOR = "///";
 	
 	public default <T> Set<T> findAllAndConvert(
 		Predicate<IterableZipContainer.Entry> zipEntryPredicate, 
@@ -187,7 +205,7 @@ public interface IterableZipContainer extends Component {
 			loadZipEntryData
 		);
 		if (entriesFound.size() > 1) {
-			throw Throwables.toRuntimeException("Found more than one zip entry for predicate " + zipEntryPredicate);
+			Throwables.throwException("Found more than one zip entry for predicate {}", zipEntryPredicate);
 		}
 		return entriesFound.stream().findFirst().orElseGet(() -> null);
 	}
@@ -224,8 +242,14 @@ public interface IterableZipContainer extends Component {
 		);
 	}
 	
+	public default void destroy(boolean removeFromCache) {
+		if (removeFromCache) {
+			Cache.pathForIterableZipContainers.remove(getAbsolutePath(), true);
+		}
+	}
+	
 	public default void destroy() {
-		Cache.pathForZipFiles.remove(getAbsolutePath());
+		destroy(true);
 	}
 	
 	public static interface Entry extends Component{
@@ -233,8 +257,10 @@ public interface IterableZipContainer extends Component {
 		public <C extends IterableZipContainer> C getParentContainer();
 		
 		public default String getConventionedAbsolutePath() {
-			return getParentContainer().getConventionedAbsolutePath() + getName();
+			return getParentContainer().getConventionedAbsolutePath() + getCleanedName();
 		}
+		
+		public String getCleanedName();
 		
 		public String getName();
 		
@@ -248,10 +274,7 @@ public interface IterableZipContainer extends Component {
 			return Streams.toByteArray(toByteBuffer());
 		}
 		
-		default public boolean isArchive() {
-			ByteBuffer content = toByteBuffer();
-			return content != null ? Streams.isArchive(content) : false;
-		}
+		public boolean isArchive();
 		
 		default public InputStream toInputStream() {
 			return new ByteBufferInputStream(toByteBuffer());

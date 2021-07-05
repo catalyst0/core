@@ -28,10 +28,14 @@
  */
 package org.burningwave.core;
 
+import static org.burningwave.core.assembler.StaticComponentContainer.Strings;
+import static org.burningwave.core.assembler.StaticComponentContainer.Synchronizer;
+
 import java.io.PrintStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Supplier;
 
 import org.burningwave.core.ManagedLogger.Repository;
 
@@ -44,19 +48,25 @@ public class SimpleManagedLoggerRepository extends Repository.Abst {
 	
 	
 	@Override
-	void init(Properties properties) {
-		loggers = new HashMap<>();		
+	void initSpecificElements(Properties properties) {
+		loggers = new HashMap<>();
+	}
+	
+	@Override
+	void resetSpecificElements() {
+		loggers.clear();		
 	}
 	
 	private LoggingLevel.Mutable getLoggerEnabledFlag(String clientName) {
 		LoggingLevel.Mutable loggerEnabledFlag = loggers.get(clientName);
 		if (loggerEnabledFlag == null) {
-			synchronized (getId(loggers, clientName)) {
-				loggerEnabledFlag = loggers.get(clientName);
-				if (loggerEnabledFlag == null) {
-					loggers.put(clientName, loggerEnabledFlag = new LoggingLevel.Mutable(LoggingLevel.ALL_LEVEL_ENABLED));
+			loggerEnabledFlag = Synchronizer.execute(instanceId + "_" + clientName, () -> {
+				LoggingLevel.Mutable loggerEnabledFlagTemp = loggers.get(clientName);
+				if (loggerEnabledFlagTemp == null) {
+					loggers.put(clientName, loggerEnabledFlagTemp = new LoggingLevel.Mutable(LoggingLevel.ALL_LEVEL_ENABLED));
 				}
-			}
+				return loggerEnabledFlagTemp;
+			});
 		}
 		return loggerEnabledFlag;
 	}
@@ -96,90 +106,102 @@ public class SimpleManagedLoggerRepository extends Repository.Abst {
 		loggers.put(client, new LoggingLevel.Mutable(level.flags));
 	}
 
-	private void log(Class<?> client, LoggingLevel level, PrintStream printStream, String text, Throwable exception) {
+	private void log(Supplier<String> clientNameSupplier, LoggingLevel level, PrintStream printStream, String text, Throwable exception) {
 		if (!isEnabled) {
 			return;
 		}
-		if (getLoggerEnabledFlag(client.getName()).partialyMatch(level)) {
+		StackTraceElement[] stackTraceElements = Thread.currentThread().getStackTrace();
+		StackTraceElement stackTraceElement = stackTraceElements[3].getClassName().equals(ManagedLogger.class.getName()) ?
+			stackTraceElements[4] : stackTraceElements[3];
+		String clientName = clientNameSupplier.get();
+		if (getLoggerEnabledFlag(clientName).partialyMatch(level)) {
 			if (exception == null) {
-				printStream.println(client.getName() + " - " + text);
+				printStream.println("[" + Thread.currentThread().getName() + "] - " + clientName + " - " + addDetailsToMessage(text, stackTraceElement));
 			} else {
-				printStream.println(client.getName() + " - " + text);
+				printStream.println("[" + Thread.currentThread().getName() + "] - " + clientName + " - " + addDetailsToMessage(text, stackTraceElement));
 				exception.printStackTrace(printStream);
 			}
 		}
 	}
 	
-	public void disableLogging(Class<?> client) {
-		setLoggerEnabledFlag(client.getName(), new LoggingLevel.Mutable(LoggingLevel.ALL_LEVEL_DISABLED));
+	@Override
+	public void disableLogging(String clientName) {
+		setLoggerEnabledFlag(clientName, new LoggingLevel.Mutable(LoggingLevel.ALL_LEVEL_DISABLED));
 	}
-	
-	public void enableLogging(Class<?> client) {
-		setLoggerEnabledFlag(client.getName(), new LoggingLevel.Mutable(LoggingLevel.ALL_LEVEL_ENABLED));
-	}
-	
-	public void logError(Class<?> client, String message, Throwable exc) {
-		log(client, LoggingLevel.ERROR, System.err, message, exc);
-	}
-
-	public void logError(Class<?> client, String message) {
-		log(client, LoggingLevel.ERROR, System.err, message, null);
-	}
-	
-	public void logDebug(Class<?> client, String message) {
-		log(client, LoggingLevel.DEBUG, System.out, message, null);
-	}
-	
-	public void logDebug(Class<?> client, String message, Object... arguments) {
-		message = replacePlaceHolder(message, arguments);
-		log(client, LoggingLevel.DEBUG, System.out, message, null);
-	}
-	
-	public void logInfo(Class<?> client, String message) {
-		log(client, LoggingLevel.INFO, System.out, message, null);
-	}
-	
-	public void logInfo(Class<?> client, String message, Object... arguments) {
-		message = replacePlaceHolder(message, arguments);
-		log(client, LoggingLevel.INFO, System.out, message, null);
-	}
-	
-	public void logWarn(Class<?> client, String message) {
-		log(client, LoggingLevel.WARN, System.out, message, null);
-	}
-	
-	public void logWarn(Class<?> client, String message, Object... arguments) {
-		message = replacePlaceHolder(message, arguments);
-		log(client, LoggingLevel.WARN, System.out, message, null);
+	@Override
+	public void enableLogging(String clientName) {
+		setLoggerEnabledFlag(clientName, new LoggingLevel.Mutable(LoggingLevel.ALL_LEVEL_ENABLED));
 	}
 	
 	@Override
-	public void logTrace(Class<?> client, String message) {
-		log(client, LoggingLevel.TRACE, System.out, message, null);
+	public void logError(Supplier<String> clientNameSupplier, Throwable exc) {
+		log(clientNameSupplier, LoggingLevel.ERROR, System.err, "Exception occurred", exc);
+	}
+	
+	@Override
+	public void logError(Supplier<String> clientNameSupplier, String message, Throwable exc, Object... arguments) {
+		log(clientNameSupplier, LoggingLevel.ERROR, System.err, Strings.compile(message, arguments), exc);		
+	}
+	
+	@Override
+	public void logError(Supplier<String> clientNameSupplier, String message, Throwable exc) {
+		log(clientNameSupplier, LoggingLevel.ERROR, System.err, message, exc);
+	}
+	
+	@Override
+	public void logError(Supplier<String> clientNameSupplier, String message, Object... arguments) {
+		log(clientNameSupplier, LoggingLevel.ERROR, System.err, Strings.compile(message, arguments), null);		
+	}
+	
+	@Override
+	public void logError(Supplier<String> clientNameSupplier, String message) {
+		log(clientNameSupplier, LoggingLevel.ERROR, System.err, message, null);
+	}
+	
+	@Override
+	public void logDebug(Supplier<String> clientNameSupplier, String message) {
+		log(clientNameSupplier, LoggingLevel.DEBUG, System.out, message, null);
+	}
+	
+	@Override
+	public void logDebug(Supplier<String> clientNameSupplier, String message, Object... arguments) {
+		log(clientNameSupplier, LoggingLevel.DEBUG, System.out, Strings.compile(message, arguments), null);
+	}
+	
+	@Override
+	public void logInfo(Supplier<String> clientNameSupplier, String message) {
+		log(clientNameSupplier, LoggingLevel.INFO, System.out, message, null);
+	}
+	
+	@Override
+	public void logInfo(Supplier<String> clientNameSupplier, String message, Object... arguments) {
+		log(clientNameSupplier, LoggingLevel.INFO, System.out, Strings.compile(message, arguments), null);
+	}
+	
+	@Override
+	public void logWarn(Supplier<String> clientNameSupplier, String message) {
+		log(clientNameSupplier, LoggingLevel.WARN, System.out, message, null);
+	}
+	
+	@Override
+	public void logWarn(Supplier<String> clientNameSupplier, String message, Object... arguments) {
+		log(clientNameSupplier, LoggingLevel.WARN, System.out, Strings.compile(message, arguments), null);
+	}
+	
+	@Override
+	public void logTrace(Supplier<String> clientNameSupplier, String message) {
+		log(clientNameSupplier, LoggingLevel.TRACE, System.out, message, null);
 	}
 
 	@Override
-	public void logTrace(Class<?> client, String message, Object... arguments) {
-		message = replacePlaceHolder(message, arguments);
-		log(client, LoggingLevel.TRACE, System.out, message, null);
+	public void logTrace(Supplier<String> clientNameSupplier, String message, Object... arguments) {
+		log(clientNameSupplier, LoggingLevel.TRACE, System.out, Strings.compile(message, arguments), null);
 	}
 	
-	private String replacePlaceHolder(String message, Object... arguments) {
-		for (Object obj : arguments) {
-			message = message.replaceFirst("\\{\\}", clear(obj.toString()));
-		}
-		return message;
+	@Override
+	public void close() {
+		this.loggers.clear();
+		super.close();
 	}
-	
-	private static String clear(String text) {
-		return text
-		.replace("\\", "\\")
-		.replace("{", "\\{")
-		.replace("}", "\\}")
-		.replace("(", "\\(")
-		.replace(")", "\\)")
-		.replace(".", "\\.")
-		.replace("$", "\\$");
-	}
-	
+
 }
